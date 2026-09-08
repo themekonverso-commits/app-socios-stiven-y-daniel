@@ -1,26 +1,287 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@custom-variant dark (&:is(.dark *));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SISTEMA DE DISEÑO — Dashboard Socios
+   Dark mode fijo. No hay tema claro: los tokens se declaran una sola vez.
+
+   Los tokens de producto (--bg-*, --accent*, --text-*, --success…) son la
+   fuente de verdad. Debajo se mapean sobre los nombres semánticos que usa
+   shadcn/ui para que los componentes base hereden la paleta sin tocar sus
+   estilos internos ni escribir colores a mano en los componentes.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root,
+.dark {
+  /* ── Tokens de producto ────────────────────────────────────────────────── */
+  --bg-base: #0b0b0c; /* fondo de la aplicación */
+  --bg-surface: #161617; /* tarjetas y paneles */
+  --bg-surface-2: #1e1e20; /* hover, inputs, estados elevados */
+  --border: #2a2a2d; /* bordes de 1px, sutiles */
+
+  --accent: #f2551e; /* naranja principal */
+  --accent-hover: #ff6b38;
+  --accent-soft: rgba(242, 85, 30, 0.12); /* fondos de badge */
+
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1a6;
+  --text-muted: #6e6e73;
+
+  --success: #34c759; /* variaciones positivas */
+  --danger: #ff453a; /* variaciones negativas y errores */
+  --warning: #ffd60a;
+
+  /* Radios: 14px en tarjetas, 10px en botones e inputs.
+     La escala de shadcn deriva de --radius, y lg = 10px, xl = 14px. */
+  --radius: 10px;
+
+  /* Escala de z-index. Usar siempre estos niveles, nunca valores sueltos. */
+  --z-sticky: 20;
+  --z-bottom-nav: 30;
+  --z-drawer: 40;
+  --z-modal: 50;
+
+  /* ── Mapeo sobre los nombres semánticos de shadcn/ui ───────────────────── */
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--bg-surface);
+  --popover-foreground: var(--text-primary);
+
+  /* La acción principal de la interfaz es el naranja de marca. */
+  --primary: var(--accent);
+  --primary-foreground: #ffffff;
+
+  --secondary: var(--bg-surface-2);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--bg-surface-2);
+  --muted-foreground: var(--text-secondary);
+
+  /* Ojo: shadcn llama "accent" al fondo de hover de menús y botones fantasma,
+     que aquí NO es el naranja sino la superficie elevada. El naranja de marca
+     se expone como utilidad `brand` más abajo. */
+  --accent-foreground: var(--text-primary);
+
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+
+  --input: var(--border);
+  --ring: var(--accent);
+
+  --sidebar: var(--bg-base);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--bg-surface-2);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--accent);
+
+  --chart-1: var(--accent);
+  --chart-2: #ff8a5c;
+  --chart-3: #b53c14;
+  --chart-4: #7a2a0e;
+  --chart-5: #3f1607;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-inter);
+  --font-heading: var(--font-inter);
+
+  /* Utilidades del sistema de diseño: bg-base, bg-surface, text-secondary… */
+  --color-base: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-surface-2: var(--bg-surface-2);
+
+  --color-brand: var(--accent);
+  --color-brand-hover: var(--accent-hover);
+  --color-brand-soft: var(--accent-soft);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+
+  /* Nombres semánticos de shadcn/ui */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--bg-surface-2);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) * 0.6); /* 6px */
+  --radius-md: calc(var(--radius) * 0.8); /* 8px */
+  --radius-lg: var(--radius); /* 10px — botones e inputs */
+  --radius-xl: calc(var(--radius) * 1.4); /* 14px — tarjetas */
+  --radius-2xl: calc(var(--radius) * 1.8); /* 18px */
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Ancho de la sidebar fija en escritorio */
+  --spacing-sidebar: 248px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    /* Fija el esquema oscuro para scrollbars y controles nativos del sistema. */
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* Sin tema claro: el fondo base nunca cambia. */
+  }
+
+  /* La jerarquía la dan fondo y borde, no la sombra. */
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--text-primary);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Foco siempre visible para navegación con teclado. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Todas las cifras alineadas en columna. */
+  .cifra,
+  table td,
+  table th {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--bg-base);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--bg-surface-2);
+    border-radius: 999px;
+    border: 2px solid var(--bg-base);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--border);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Enlace de salto para usuarios de teclado: invisible hasta recibir foco. */
+  .skip-link {
+    position: absolute;
+    left: 1rem;
+    top: -100px;
+    z-index: var(--z-modal);
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #ffffff;
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    transition: top 150ms ease;
+  }
+  .skip-link:focus {
+    top: 1rem;
+  }
+}
+
+/* Respeta la preferencia del sistema de reducir movimiento. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMPRESIÓN — el acta de cierre
+   El navegador ya sabe guardar en PDF; no hace falta una librería para eso.
+   Al imprimir se esconde toda la interfaz y queda solo el acta, en negro sobre
+   blanco para que se lea en papel.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media print {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Fuera navegación, botones y adornos. */
+  aside,
+  header,
+  nav,
+  .skip-link,
+  [data-slot="toaster"] {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  /* Nada de sangrar tinta en fondos oscuros. */
+  * {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
 }
