@@ -252,6 +252,123 @@ end $$;
 
 
 -- ───────────────────────────────────────────────────────────────────────────
+-- R6 — ÁMBITO DEL CUPO DE APORTACIÓN
+-- ───────────────────────────────────────────────────────────────────────────
+
+-- 12. El cupo de la tarjeta solo cuenta publicidad; el derecho a reembolso
+--     cuenta todo. Un socio adelanta 800 € de anuncios y 200 € de una
+--     herramienta: el cupo consume 800, pero se le deben 1.000.
+--
+--     Es la distinción que da sentido a la regla 6: los 3.000 € son el cupo
+--     de una tarjeta destinada a publicidad, no un tope a lo que un socio
+--     puede adelantar. Adelantar Shopify no gasta tarjeta, pero se devuelve
+--     igual.
+do $$
+declare
+  v_socio        uuid;
+  v_publicidad   uuid;
+  v_herramienta  uuid;
+  v_cupo_antes   numeric;
+  v_otros_antes  numeric;
+  v_pend_antes   numeric;
+  v_cupo         numeric;
+  v_otros        numeric;
+  v_pendiente    numeric;
+begin
+  select id into v_socio from public.profiles where activo = true limit 1;
+
+  select id into v_publicidad
+  from public.categorias where nombre = 'Publicidad' and tipo = 'gasto' limit 1;
+
+  select id into v_herramienta
+  from public.categorias
+  where tipo = 'gasto' and id <> v_publicidad
+  limit 1;
+
+  -- El ajuste tiene que apuntar a Publicidad para que el desglose se active.
+  update public.ajustes
+  set valor = valor || jsonb_build_object('categoria_id', v_publicidad)
+  where clave = 'limite_aportacion';
+
+  -- Se mide por DIFERENCIA: los casos 10 y 11 ya dejaron anticipos de este
+  -- mismo socio dentro de la transacción, y comparar contra cero daría un
+  -- fallo que no es del código sino del orden de los tests.
+  select coalesce(v.anticipado_cupo, 0), coalesce(v.anticipado_otros, 0),
+         coalesce(v.pendiente, 0)
+    into v_cupo_antes, v_otros_antes, v_pend_antes
+  from public.vw_anticipos_socio v
+  where v.socio_id = v_socio;
+
+  insert into public.movimientos (
+    tipo, fecha, concepto, categoria_id, divisa,
+    base_imponible, iva_tipo, iva_importe, total,
+    tasa_cambio, total_eur, base_eur, anticipado_por, created_by)
+  values
+    ('gasto', '1990-03-01', 'TEST anuncios', v_publicidad, 'EUR',
+     800, 0, 0, 800, 1, 800, 800, v_socio, v_socio),
+    ('gasto', '1990-03-02', 'TEST herramienta', v_herramienta, 'EUR',
+     200, 0, 0, 200, 1, 200, 200, v_socio, v_socio);
+
+  select v.anticipado_cupo - v_cupo_antes,
+         v.anticipado_otros - v_otros_antes,
+         v.pendiente - v_pend_antes
+    into v_cupo, v_otros, v_pendiente
+  from public.vw_anticipos_socio v
+  where v.socio_id = v_socio;
+
+  insert into _resultados values (
+    12,
+    'Cupo publicitario: 800 € de anuncios + 200 € de herramienta',
+    'cupo=+800.00, otros=+200.00, pendiente=+1000.00',
+    'cupo=' || coalesce(v_cupo::text, 'null')
+      || ', otros=' || coalesce(v_otros::text, 'null')
+      || ', pendiente=' || coalesce(v_pendiente::text, 'null'),
+    v_cupo = 800.00 and v_otros = 200.00 and v_pendiente = 1000.00);
+end $$;
+
+
+-- 13. Sin ámbito definido (categoria_id a null) se comporta como antes:
+--     el cupo suma TODOS los anticipos. Es la compatibilidad hacia atrás que
+--     promete la migración 0011.
+do $$
+declare
+  v_socio       uuid;
+  v_categoria   uuid;
+  v_cupo        numeric;
+  v_otros       numeric;
+  v_anticipado  numeric;
+begin
+  select id into v_socio from public.profiles where activo = true limit 1;
+  select id into v_categoria from public.categorias where tipo = 'gasto' limit 1;
+
+  update public.ajustes
+  set valor = valor || '{"categoria_id": null}'::jsonb
+  where clave = 'limite_aportacion';
+
+  insert into public.movimientos (
+    tipo, fecha, concepto, categoria_id, divisa,
+    base_imponible, iva_tipo, iva_importe, total,
+    tasa_cambio, total_eur, base_eur, anticipado_por, created_by)
+  values ('gasto', '1990-04-01', 'TEST sin ambito', v_categoria, 'EUR',
+          150, 0, 0, 150, 1, 150, 150, v_socio, v_socio);
+
+  select v.anticipado, v.anticipado_cupo, v.anticipado_otros
+    into v_anticipado, v_cupo, v_otros
+  from public.vw_anticipos_socio v
+  where v.socio_id = v_socio;
+
+  insert into _resultados values (
+    13,
+    'Sin ámbito (categoria_id null): el cupo vuelve a sumarlo todo',
+    'cupo = anticipado, otros=0.00',
+    'cupo=' || coalesce(v_cupo::text, 'null')
+      || ', anticipado=' || coalesce(v_anticipado::text, 'null')
+      || ', otros=' || coalesce(v_otros::text, 'null'),
+    v_cupo = v_anticipado and v_otros = 0.00);
+end $$;
+
+
+-- ───────────────────────────────────────────────────────────────────────────
 -- RESULTADOS
 -- ───────────────────────────────────────────────────────────────────────────
 

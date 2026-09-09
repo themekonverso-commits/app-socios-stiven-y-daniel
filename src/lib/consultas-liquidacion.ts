@@ -72,6 +72,8 @@ export async function obtenerResumenSocios(): Promise<ResumenSocio[]> {
     nombre: fila.nombre ?? "",
     color: fila.color ?? null,
     anticipado: n(fila.anticipado),
+    anticipado_cupo: n(fila.anticipado_cupo),
+    anticipado_otros: n(fila.anticipado_otros),
     reembolsado: n(fila.reembolsado),
     pendiente: n(fila.pendiente),
     num_anticipos: n(fila.num_anticipos),
@@ -174,10 +176,26 @@ export async function obtenerLimiteAportacion(): Promise<{
   const limite = (porClave.get("limite_aportacion") ?? {}) as Record<string, unknown>;
   const aviso = (porClave.get("aviso_limite_pct") ?? {}) as Record<string, unknown>;
 
+  const categoriaId = (limite.categoria_id as string) ?? null;
+
+  // El nombre solo sirve para el texto de la pantalla. Quien decide qué entra
+  // en el cupo es la vista, con el id: aquí no se filtra nada.
+  let categoriaNombre: string | null = null;
+  if (categoriaId) {
+    const { data: categoria } = await supabase
+      .from("categorias")
+      .select("nombre")
+      .eq("id", categoriaId)
+      .maybeSingle();
+    categoriaNombre = categoria?.nombre ?? null;
+  }
+
   return {
     limite: {
       socio_id: (limite.socio_id as string) ?? null,
       importe: n(limite.importe),
+      categoria_id: categoriaId,
+      categoria_nombre: categoriaNombre,
     },
     avisoPct: n(aviso.porcentaje) || 80,
   };

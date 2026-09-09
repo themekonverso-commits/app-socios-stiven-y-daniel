@@ -182,15 +182,21 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     });
   }
 
+  // R6: el cupo mide SOLO lo que consume la tarjeta (publicidad). Los
+  // anticipos de otras categorías se reembolsan igual y no deben disparar
+  // esta alerta.
   if (limite.importe > 0) {
+    const ambito = limite.categoria_nombre?.toLowerCase();
     for (const socio of socios) {
-      const pct = porcentaje(socio.anticipado, limite.importe);
+      const pct = porcentaje(socio.anticipado_cupo, limite.importe);
       if (pct !== null && pct >= avisoPct) {
         alertas.push({
           nivel: "ambar",
-          titulo: `${socio.nombre} ha aportado el ${formatearNumero(pct)} % de su límite`,
-          detalle: `Sobre los ${formatearEuros(limite.importe)} acordados. El contrato prevé convocar la reunión de continuidad.`,
-          enlace: { href: "/liquidacion", texto: "Ver el límite" },
+          titulo: `${socio.nombre} ha consumido el ${formatearNumero(pct)} % de su cupo`,
+          detalle: `Sobre los ${formatearEuros(limite.importe)} acordados${
+            ambito ? ` para ${ambito}` : ""
+          }. El contrato prevé convocar la reunión de continuidad.`,
+          enlace: { href: "/liquidacion", texto: "Ver el cupo" },
         });
       }
     }

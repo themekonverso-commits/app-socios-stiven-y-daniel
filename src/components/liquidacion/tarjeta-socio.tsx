@@ -7,11 +7,25 @@ import type { ResumenSocio } from "@/lib/tipos-liquidacion";
  * Estado de un socio: cuánto puso, cuánto ha cobrado y cuánto se le debe.
  * El acento de la tarjeta es el color del socio, para poder distinguirlas de
  * un vistazo sin leer el nombre.
+ *
+ * El total anticipado se desglosa en lo que consume el cupo de la tarjeta y lo
+ * que no (R6), pero el PENDIENTE DE COBRO es la suma de los dos: el contrato
+ * no distingue por categoría, todo anticipo justificado da derecho a reembolso.
  */
-export function TarjetaSocio({ socio }: { socio: ResumenSocio }) {
+export function TarjetaSocio({
+  socio,
+  ambito,
+}: {
+  socio: ResumenSocio;
+  /** Categoría del cupo. Sin ella no hay desglose que enseñar. */
+  ambito?: string | null;
+}) {
   const color = socio.color ?? "#6E6E73";
   const pct = porcentaje(socio.reembolsado, socio.anticipado) ?? 0;
   const saldado = socio.pendiente <= 0 && socio.anticipado > 0;
+
+  // Sin ámbito el desglose no dice nada: todo caería en una sola línea.
+  const hayDesglose = Boolean(ambito) && socio.anticipado > 0;
 
   return (
     <article
@@ -39,6 +53,24 @@ export function TarjetaSocio({ socio }: { socio: ResumenSocio }) {
             {formatearEuros(socio.anticipado)}
           </dd>
         </div>
+
+        {hayDesglose ? (
+          <div className="flex flex-col gap-1 border-l-2 border-border pl-3 text-xs">
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-text-muted">{ambito}</dt>
+              <dd className="cifra text-text-secondary">
+                {formatearEuros(socio.anticipado_cupo)}
+              </dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-text-muted">Otros gastos</dt>
+              <dd className="cifra text-text-secondary">
+                {formatearEuros(socio.anticipado_otros)}
+              </dd>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex items-baseline justify-between gap-3">
           <dt className="text-text-secondary">Ya reembolsado</dt>
           <dd className="cifra font-medium text-success">

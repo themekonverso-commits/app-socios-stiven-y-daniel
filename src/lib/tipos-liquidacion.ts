@@ -47,7 +47,15 @@ export type ResumenSocio = {
   socio_id: string;
   nombre: string;
   color: string | null;
+  /** Todo lo que ha puesto de su bolsillo. Es lo que manda en los reembolsos. */
   anticipado: number;
+  /**
+   * La parte que consume el cupo de la tarjeta (R6). Si el ajuste
+   * `limite_aportacion` no tiene ámbito, coincide con `anticipado`.
+   */
+  anticipado_cupo: number;
+  /** El resto: reembolsable igual, pero no gasta tarjeta. */
+  anticipado_otros: number;
   reembolsado: number;
   pendiente: number;
   num_anticipos: number;
@@ -115,4 +123,11 @@ export type Cierre = {
 export type LimiteAportacion = {
   socio_id: string | null;
   importe: number;
+  /**
+   * Ámbito del cupo. Los 3.000 € son el tope de una tarjeta destinada solo a
+   * publicidad: un anticipo de otra categoría se reembolsa igual, pero no
+   * consume cupo. A null, el cupo cuenta todos los anticipos.
+   */
+  categoria_id: string | null;
+  categoria_nombre: string | null;
 };

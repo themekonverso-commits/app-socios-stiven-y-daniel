@@ -80,11 +80,12 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
     obtenerLimiteAportacion(),
   ]);
 
-  // R6: si no se ha designado socio, el límite se vigila sobre quien más ha
-  // aportado, que es a quien afecta la conversación de continuidad.
+  // R6: si no se ha designado socio, el cupo se vigila sobre quien más lo ha
+  // consumido —no sobre quien más ha adelantado en total—, que es a quien
+  // afecta la conversación de continuidad.
   const socioLimite = limite.socio_id
     ? socios.find((s) => s.socio_id === limite.socio_id)
-    : [...socios].sort((a, b) => b.anticipado - a.anticipado)[0];
+    : [...socios].sort((a, b) => b.anticipado_cupo - a.anticipado_cupo)[0];
 
   const hayLimite = limite.importe > 0 && socioLimite !== undefined;
 
@@ -103,7 +104,11 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {socios.map((socio) => (
-                <TarjetaSocio key={socio.socio_id} socio={socio} />
+                <TarjetaSocio
+                  key={socio.socio_id}
+                  socio={socio}
+                  ambito={limite.categoria_nombre}
+                />
               ))}
             </div>
           )}
@@ -115,12 +120,17 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
       {hayLimite && socioLimite ? (
         <TarjetaBloque
           titulo="Límite de aportación"
-          descripcion="Regla 6 del contrato."
+          descripcion={
+            limite.categoria_nombre
+              ? `Regla 6 del contrato. El cupo es solo para ${limite.categoria_nombre.toLowerCase()}.`
+              : "Regla 6 del contrato."
+          }
         >
           <LimiteAportacion
             socio={socioLimite}
             limite={limite.importe}
             avisoPct={avisoPct}
+            ambito={limite.categoria_nombre}
           />
         </TarjetaBloque>
       ) : null}

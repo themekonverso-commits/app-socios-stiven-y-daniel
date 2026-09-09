@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       ajustes: {
@@ -755,6 +780,8 @@ export type Database = {
       vw_anticipos_socio: {
         Row: {
           anticipado: number | null
+          anticipado_cupo: number | null
+          anticipado_otros: number | null
           color: string | null
           nombre: string | null
           num_anticipos: number | null
@@ -902,6 +929,7 @@ export type Database = {
       es_socio_activo: { Args: never; Returns: boolean }
       fn_anular_reembolso: { Args: { p_reembolso: string }; Returns: undefined }
       fn_aprobar_cierre: { Args: { p_cierre: string }; Returns: Json }
+      fn_categoria_limite: { Args: never; Returns: string }
       fn_crear_cierre: {
         Args: {
           p_etiqueta: string
@@ -1122,6 +1150,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

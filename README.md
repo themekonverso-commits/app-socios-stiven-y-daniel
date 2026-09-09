@@ -707,8 +707,48 @@ interfaz**.
 | R3.2 | Si no hay fondos, reembolso a prorrata sin preferencias | `fn_prorrata_calculo` |
 | R4 | Nadie cobra con anticipos pendientes o pérdidas | `puede_repartir` |
 | R5 | Fase Inicial: 3 meses al 100 % de reinversión | `fn_en_fase_inicial` |
-| R6 | Límite de aportación de 3.000 € y reunión de continuidad | `ajustes.limite_aportacion` |
+| R6 | Cupo de aportación de 3.000 € **para publicidad** y reunión de continuidad | `ajustes.limite_aportacion` + `vw_anticipos_socio` |
 | R7 | Liquidación final por mitades del neto | `fn_liquidacion_calculo` |
+
+### El cupo de la R6 tiene ámbito: solo publicidad
+
+Los 3.000 € no son «lo máximo que un socio puede adelantar». Son el cupo de una
+**tarjeta de crédito destinada en exclusiva a inversión publicitaria**. Si
+Néstor adelanta su mitad de Shopify o de Klaviyo, ese gasto **no consume
+tarjeta**, aunque se le deba exactamente igual.
+
+El ámbito vive en el propio ajuste (migración `0011`):
+
+```json
+{"socio_id": "…", "importe": 3000, "categoria_id": "<id de Publicidad>"}
+```
+
+El id de la categoría lo resuelve la migración por nombre, no está escrito a
+mano: en cada base de datos es otro. Si `categoria_id` es `null`, el cupo vuelve
+a contar todos los anticipos, que es como se comportaba antes.
+
+`vw_anticipos_socio` devuelve tres cifras por socio:
+
+| Columna | Qué es | Quién la usa |
+| --- | --- | --- |
+| `anticipado` | Todo lo que ha puesto de su bolsillo | Reembolsos, prorrata y liquidación final |
+| `anticipado_cupo` | La parte que consume el cupo | La barra de la R6 y la alerta del semáforo |
+| `anticipado_otros` | El resto | Solo se muestra, para que se vea que no se pierde |
+
+**Lo que no cambia:** reembolsos, prorrata y liquidación final siguen operando
+sobre `anticipado`, el total. El contrato no distingue por categoría —todo
+anticipo justificado da derecho a reembolso— y el pendiente de cobro de las
+tarjetas de socio sigue siendo la suma de las dos partes.
+
+Por eso la pantalla lo dice con todas las letras: bajo la barra aparece
+«Además ha anticipado X € en otros gastos, reembolsables igualmente. No
+consumen el cupo.» Quien lea solo la barra no puede acabar creyendo que ese
+dinero se ha perdido.
+
+Casos 12 y 13 de `supabase/tests/liquidacion.sql`: 800 € de anuncios más 200 €
+de una herramienta dan cupo 800 y pendiente 1.000; y con el ámbito a `null` el
+cupo vuelve a sumarlo todo. El caso 12 mide **por diferencia** porque los casos
+10 y 11 ya dejan anticipos del mismo socio dentro de la transacción.
 
 ### Por qué el cálculo está partido en dos capas
 
