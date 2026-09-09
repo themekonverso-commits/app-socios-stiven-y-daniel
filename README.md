@@ -1084,7 +1084,75 @@ Responsive comprobado a 375, 768 y 1440 px.
 
 ---
 
-## 16. Notas de mantenimiento
+## 16. Permisos por autoría
+
+Desde las migraciones **0012 a 0014**, cada socio solo puede modificar o borrar
+lo que él mismo registró.
+
+| Operación | Quién |
+| --- | --- |
+| Leer | Los dos, todo. La transparencia es total y no se toca. |
+| Crear | Los dos. |
+| Editar y borrar | Solo el autor, por `created_by`. |
+
+`created_by` **no es** `anticipado_por`. Uno puede registrar un gasto que
+adelantó el otro: ahí manda quien lo registró. Por eso en /movimientos hay dos
+columnas distintas —«Anticipado» y «Registrado»— y dos filtros distintos.
+
+Se aplica a `movimientos`, `cuentas_activos`, `notas` y `reembolsos`. **No** a
+`categorias` ni a `ajustes`, que son configuración compartida, ni a `cierres`,
+que ya tienen doble firma e inmutabilidad propias.
+
+### La cerradura está en la base de datos
+
+Las políticas de UPDATE y DELETE exigen `created_by = auth.uid()`. Esconder los
+botones del menú es cortesía para no ofrecer algo que va a fallar; lo que
+protege de verdad es la RLS, y así lo demuestra `supabase/tests/permisos.sql`:
+20 casos que se ponen en la piel de cada socio con `set local role authenticated`
+y `request.jwt.claims`. Sin bajarse de superusuario los tests pasarían siempre,
+porque el dueño de la tabla se salta la RLS.
+
+### Tres trampas que aparecieron al cerrar y conviene no reabrir
+
+**1. La RLS no lanza error: afecta a cero filas.** Un `update` o un `delete`
+bloqueado por política devuelve éxito en PostgREST. Tal cual, editar un
+movimiento ajeno habría dicho «Guardado» sin guardar nada. Por eso todas las
+escrituras piden `.select()` y comprueban cuántas filas volvieron; si son cero,
+la acción busca al autor y devuelve la frase completa: «Este movimiento lo
+registró Néstor. Solo él puede modificarlo o eliminarlo.»
+
+**2. Crear a nombre de otro.** La política de INSERT solo exigía ser socio
+activo, así que un socio podía dar de alta una fila firmada por el otro. Con la
+autoría convertida en la base de los permisos, eso es falsificar una firma. La
+**0013** lo cierra: `created_by = auth.uid()` también al crear. Lo encontró el
+caso 3 de los tests, no una revisión a ojo.
+
+**3. Lo que NO es editar.** Tres operaciones son compartidas por naturaleza y
+habrían dejado de funcionar en silencio:
+
+| Operación | Cómo se resolvió |
+| --- | --- |
+| Marcar un reembolso (disparador y interruptor manual) | `sincronizar_flag_reembolsado` y `fn_marcar_reembolsado`, ambas SECURITY DEFINER y acotadas a dos columnas |
+| Registrar el pago de una cuenta recurrente | `fn_registrar_pago_cuenta` pasa a SECURITY DEFINER |
+| Deshacer una importación / anular un reembolso | **Sí** son borrar: se les añadió una comprobación de autoría explícita para que fallen con un mensaje en vez de borrar cero filas y darse por hechas |
+
+La elevación de esas funciones es deliberadamente estrecha: exigen sesión y
+socio activo, no aceptan a nombre de quién actuar, y solo escriben las columnas
+que les tocan. Saltan la comprobación de autoría, no la de pertenencia.
+
+### En la pantalla
+
+- El menú de una fila ajena muestra **Duplicar** y **Marcar reembolso**, y en su
+  lugar explica por qué no hay Editar ni Eliminar. Duplicar crea un movimiento
+  nuevo a nombre de quien duplica y deja el original intacto: es la vía legítima
+  para registrar algo parecido a lo del otro.
+- El panel de edición no se fía del menú: si se abre sobre algo ajeno, enseña el
+  aviso y un botón «Duplicar a mi nombre».
+- Al pie de la ficha: «Registrado por Stiven el 08/09/2026 a las 21:34.»
+
+---
+
+## 17. Notas de mantenimiento
 
 - **Añadir una ruta al menú:** se toca solo `src/lib/navegacion.ts`. La sidebar,
   el drawer, la barra inferior y el título de la barra superior salen todos de

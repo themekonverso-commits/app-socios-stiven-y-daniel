@@ -104,6 +104,28 @@ function estadoInicial(
   };
 }
 
+/**
+ * «el 15/09/2026 a las 21:34», con la fecha y la hora locales de quien mira.
+ * Si el sello no viene, se omite el cuándo en vez de inventar una fecha.
+ */
+function textoAlta(creadoEn: string | null): string {
+  if (!creadoEn) return "";
+  const fecha = new Date(creadoEn);
+  if (Number.isNaN(fecha.getTime())) return "";
+
+  const dia = new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(fecha);
+  const hora = new Intl.DateTimeFormat("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(fecha);
+
+  return `el ${dia} a las ${hora}.`;
+}
+
 export function FormularioMovimiento({
   modo,
   movimiento,
@@ -759,6 +781,18 @@ export function FormularioMovimiento({
             Cancelar
           </button>
         </div>
+
+        {/* Quién firmó el registro. En un duplicado no se enseña: el original
+            es de quien sea, pero la copia va a ser de quien la guarde. */}
+        {modo === "editar" && movimiento ? (
+          <p className="mt-3 border-t border-border pt-3 text-xs text-text-muted">
+            Registrado por{" "}
+            <span className="text-text-secondary">
+              {movimiento.autor?.nombre ?? "un socio"}
+            </span>{" "}
+            {textoAlta(movimiento.created_at)}
+          </p>
+        ) : null}
 
         <p className="mt-2 text-center text-xs text-text-muted">
           <kbd className="rounded border border-border px-1">Ctrl</kbd> +{" "}

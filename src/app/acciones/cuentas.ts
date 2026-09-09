@@ -56,6 +56,16 @@ function normalizar(datos: z.infer<typeof esquemaCuenta>) {
   };
 }
 
+/**
+ * Mensaje único para cuando la RLS de autoría (migración 0012) bloquea.
+ *
+ * PostgREST no devuelve error cuando la política no ve la fila: el UPDATE o el
+ * DELETE afectan a cero y la llamada parece ir bien. Por eso todas las
+ * escrituras de aquí piden `.select()` y comprueban cuántas filas volvieron.
+ */
+const SOLO_EL_AUTOR =
+  "Esto lo creó el otro socio. Solo quien lo registró puede modificarlo o eliminarlo.";
+
 export async function crearCuenta(entrada: unknown): Promise<Resultado<{ id: string }>> {
   const supabase = await crearClienteServidor();
   const {
@@ -102,12 +112,14 @@ export async function actualizarCuenta(
   }
 
   const supabase = await crearClienteServidor();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("cuentas_activos")
     .update(normalizar(validacion.data))
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: traducirError(error) };
+  if (!data || data.length === 0) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true };
@@ -117,9 +129,14 @@ export async function eliminarCuenta(id: string): Promise<Resultado> {
   if (!UUID.safeParse(id).success) return { ok: false, error: "Identificador no válido." };
 
   const supabase = await crearClienteServidor();
-  const { error } = await supabase.from("cuentas_activos").delete().eq("id", id);
+  const { data, error } = await supabase
+    .from("cuentas_activos")
+    .delete()
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: traducirError(error) };
+  if (!data || data.length === 0) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true };
@@ -135,12 +152,14 @@ export async function cambiarEstadoCuenta(
   }
 
   const supabase = await crearClienteServidor();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("cuentas_activos")
     .update({ estado: valido.data })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: traducirError(error) };
+  if (!data || data.length === 0) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true };
@@ -212,12 +231,14 @@ export async function aplazarRenovacion(
     : new Date();
   base.setDate(base.getDate() + dias);
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("cuentas_activos")
     .update({ fecha_renovacion: base.toISOString().slice(0, 10) })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: traducirError(error) };
+  if (!data || data.length === 0) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true };

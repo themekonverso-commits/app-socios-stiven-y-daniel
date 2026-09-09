@@ -177,7 +177,7 @@ export type Database = {
           categoria_gasto_id: string | null
           coste: number | null
           created_at: string | null
-          created_by: string | null
+          created_by: string
           divisa: string | null
           email_asociado: string | null
           estado: string | null
@@ -197,7 +197,7 @@ export type Database = {
           categoria_gasto_id?: string | null
           coste?: number | null
           created_at?: string | null
-          created_by?: string | null
+          created_by?: string
           divisa?: string | null
           email_asociado?: string | null
           estado?: string | null
@@ -217,7 +217,7 @@ export type Database = {
           categoria_gasto_id?: string | null
           coste?: number | null
           created_at?: string | null
-          created_by?: string | null
+          created_by?: string
           divisa?: string | null
           email_asociado?: string | null
           estado?: string | null
@@ -966,6 +966,10 @@ export type Database = {
       }
       fn_liquidacion_calculo: { Args: { p_socios: Json }; Returns: Json }
       fn_liquidacion_final: { Args: never; Returns: Json }
+      fn_marcar_reembolsado: {
+        Args: { p_movimiento: string; p_reembolsado: boolean }
+        Returns: undefined
+      }
       fn_previsualizar_cierre: {
         Args: { p_fin: string; p_inicio: string; p_pct_reinversion?: number }
         Returns: Json

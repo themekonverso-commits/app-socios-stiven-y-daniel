@@ -25,7 +25,8 @@ import { redondear2 } from "@/lib/dinero";
 const SELECT_MOVIMIENTO = `
   *,
   categorias:categoria_id ( id, nombre, tipo, es_sistema ),
-  anticipado:anticipado_por ( id, nombre, color )
+  anticipado:anticipado_por ( id, nombre, color ),
+  autor:created_by ( id, nombre, color )
 `;
 
 /** Escapa los comodines de PostgREST en las búsquedas de texto libre. */
@@ -72,6 +73,11 @@ function aplicarFiltros<T>(consulta: Consulta<T>, filtros: Filtros): Consulta<T>
       filtros.anticipado === "sin-asignar"
         ? q.is("anticipado_por", null)
         : q.eq("anticipado_por", filtros.anticipado);
+  }
+
+  // Quién lo REGISTRÓ, que no es lo mismo que quién puso el dinero.
+  if (filtros.registrado !== "todos") {
+    q = q.eq("created_by", filtros.registrado);
   }
 
   if (filtros.reembolso !== "todos") {

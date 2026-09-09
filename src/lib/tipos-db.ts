@@ -49,7 +49,13 @@ export type Integracion = Tablas["integraciones"]["Row"];
 /** Movimiento tal y como llega de la consulta con sus relaciones resueltas. */
 export type MovimientoConRelaciones = Movimiento & {
   categorias: Pick<Categoria, "id" | "nombre" | "tipo" | "es_sistema"> | null;
+  /** Quién puso el dinero. */
   anticipado: Pick<Perfil, "id" | "nombre" | "color"> | null;
+  /**
+   * Quién lo registró. Es la firma: de esto dependen los permisos de edición
+   * y borrado (migraciones 0012 y 0013). No confundir con `anticipado`.
+   */
+  autor: Pick<Perfil, "id" | "nombre" | "color"> | null;
 };
 
 /** Categoría con sus métricas para la pantalla de gestión. */

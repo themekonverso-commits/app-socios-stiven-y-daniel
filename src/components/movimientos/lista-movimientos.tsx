@@ -93,24 +93,33 @@ function BadgeCategoria({ nombre }: { nombre: string }) {
   );
 }
 
+/**
+ * Punto de color con la inicial del socio.
+ *
+ * `papel` acaba en el title y en el texto para lectores de pantalla porque las
+ * dos columnas se ven idénticas y significan cosas distintas: una es quién
+ * puso el dinero y la otra quién registró la fila.
+ */
 function PuntoSocio({
   nombre,
   color,
+  papel,
 }: {
   nombre: string | null;
   color: string | null;
+  papel: string;
 }) {
   if (!nombre) return <span className="text-text-muted">—</span>;
 
   return (
-    <span className="inline-flex items-center gap-1.5" title={nombre}>
+    <span className="inline-flex items-center gap-1.5" title={`${papel}: ${nombre}`}>
       <span
         aria-hidden="true"
         style={{ backgroundColor: color ?? "#6E6E73" }}
         className="size-2 shrink-0 rounded-full"
       />
       <span className="text-text-secondary">{nombre.slice(0, 1).toUpperCase()}</span>
-      <span className="sr-only">{nombre}</span>
+      <span className="sr-only">{papel}: {nombre}</span>
     </span>
   );
 }
@@ -206,8 +215,19 @@ export function ListaMovimientos({
                 <th scope="col" className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
                   Categoría
                 </th>
-                <th scope="col" className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
+                <th
+                  scope="col"
+                  title="Quién puso el dinero"
+                  className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase"
+                >
                   Anticipado
+                </th>
+                <th
+                  scope="col"
+                  title="Quién registró el movimiento. Solo esa persona puede editarlo o eliminarlo."
+                  className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase"
+                >
+                  Registrado
                 </th>
                 <th scope="col" className="px-4 py-3 text-right text-xs font-semibold tracking-wide text-text-muted uppercase">
                   Total
@@ -265,6 +285,15 @@ export function ListaMovimientos({
                     <PuntoSocio
                       nombre={movimiento.anticipado?.nombre ?? null}
                       color={movimiento.anticipado?.color ?? null}
+                      papel="Anticipado por"
+                    />
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <PuntoSocio
+                      nombre={movimiento.autor?.nombre ?? null}
+                      color={movimiento.autor?.color ?? null}
+                      papel="Registrado por"
                     />
                   </td>
 
@@ -339,17 +368,33 @@ export function ListaMovimientos({
               />
             </div>
 
-            {movimiento.tipo === "gasto" ? (
-              <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-2 text-xs">
+              {movimiento.tipo === "gasto" ? (
                 <EstadoReembolso movimiento={movimiento} />
-                <span className="ml-auto">
+              ) : null}
+
+              <span className="ml-auto flex items-center gap-3">
+                {movimiento.tipo === "gasto" ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-text-muted">Anticipó</span>
+                    <PuntoSocio
+                      nombre={movimiento.anticipado?.nombre ?? null}
+                      color={movimiento.anticipado?.color ?? null}
+                      papel="Anticipado por"
+                    />
+                  </span>
+                ) : null}
+
+                <span className="flex items-center gap-1.5">
+                  <span className="text-text-muted">Registró</span>
                   <PuntoSocio
-                    nombre={movimiento.anticipado?.nombre ?? null}
-                    color={movimiento.anticipado?.color ?? null}
+                    nombre={movimiento.autor?.nombre ?? null}
+                    color={movimiento.autor?.color ?? null}
+                    papel="Registrado por"
                   />
                 </span>
-              </div>
-            ) : null}
+              </span>
+            </div>
           </li>
         ))}
       </ul>

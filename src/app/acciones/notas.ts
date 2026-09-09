@@ -37,6 +37,16 @@ function limpiarEtiquetas(etiquetas: string[]): string[] {
   return resultado;
 }
 
+/**
+ * Mensaje único para cuando la RLS de autoría (migración 0012) bloquea.
+ *
+ * PostgREST no devuelve error cuando la política no ve la fila: el UPDATE o el
+ * DELETE afectan a cero y la llamada parece ir bien. Por eso todas las
+ * escrituras de aquí piden `.select()` y comprueban cuántas filas volvieron.
+ */
+const SOLO_EL_AUTOR =
+  "Esto lo creó el otro socio. Solo quien lo registró puede modificarlo o eliminarlo.";
+
 export async function crearNota(): Promise<Resultado<{ id: string }>> {
   const supabase = await crearClienteServidor();
   const {
@@ -87,9 +97,10 @@ export async function guardarNota(
     })
     .eq("id", id)
     .select("updated_at")
-    .single();
+    .maybeSingle();
 
   if (error) return { ok: false, error: mensaje(error) };
+  if (!data) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true, datos: { actualizada: String(data?.updated_at ?? "") } };
@@ -99,9 +110,14 @@ export async function alternarFijada(id: string, fijada: boolean): Promise<Resul
   if (!UUID.safeParse(id).success) return { ok: false, error: "Identificador no válido." };
 
   const supabase = await crearClienteServidor();
-  const { error } = await supabase.from("notas").update({ fijada }).eq("id", id);
+  const { data, error } = await supabase
+    .from("notas")
+    .update({ fijada })
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: mensaje(error) };
+  if (!data || data.length === 0) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true };
@@ -114,13 +130,15 @@ export async function alternarArchivada(
   if (!UUID.safeParse(id).success) return { ok: false, error: "Identificador no válido." };
 
   const supabase = await crearClienteServidor();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("notas")
     // Archivar y seguir fijada arriba es contradictorio.
     .update({ archivada, fijada: archivada ? false : undefined })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: mensaje(error) };
+  if (!data || data.length === 0) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true };
@@ -130,9 +148,14 @@ export async function eliminarNota(id: string): Promise<Resultado> {
   if (!UUID.safeParse(id).success) return { ok: false, error: "Identificador no válido." };
 
   const supabase = await crearClienteServidor();
-  const { error } = await supabase.from("notas").delete().eq("id", id);
+  const { data, error } = await supabase
+    .from("notas")
+    .delete()
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: mensaje(error) };
+  if (!data || data.length === 0) return { ok: false, error: SOLO_EL_AUTOR };
 
   revalidar();
   return { ok: true };

@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { Lock } from "lucide-react";
 
 import {
   AlertDialog,
@@ -35,6 +36,12 @@ type ContextoMovimientos = {
   abrirNuevo: () => void;
   abrirEdicion: (movimiento: MovimientoConRelaciones) => void;
   abrirDuplicado: (movimiento: MovimientoConRelaciones) => void;
+  /**
+   * Quién está conectado. Sirve para no ofrecer acciones que la base de datos
+   * va a rechazar de todos modos: editar y borrar son solo del autor
+   * (migraciones 0012 y 0013).
+   */
+  usuarioId: string;
 };
 
 const Contexto = createContext<ContextoMovimientos | null>(null);
@@ -98,8 +105,9 @@ export function ProveedorMovimientos({
       abrirNuevo: () => abrir("crear", null),
       abrirEdicion: (fila) => abrir("editar", fila),
       abrirDuplicado: (fila) => abrir("duplicar", fila),
+      usuarioId,
     }),
-    [abrir],
+    [abrir, usuarioId],
   );
 
   /** Cerrar con cambios sin guardar pide confirmación. */
@@ -115,8 +123,15 @@ export function ProveedorMovimientos({
     setAbierto(false);
   }
 
-  const titulo =
-    modo === "editar"
+  // Editar lo ajeno no se ofrece, pero el panel no se fía y lo comprueba.
+  const ajeno =
+    modo === "editar" &&
+    movimiento !== null &&
+    movimiento.created_by !== usuarioId;
+
+  const titulo = ajeno
+    ? "Movimiento de otro socio"
+    : modo === "editar"
       ? "Editar movimiento"
       : modo === "duplicar"
         ? "Duplicar movimiento"
@@ -146,12 +161,55 @@ export function ProveedorMovimientos({
               {titulo}
             </SheetTitle>
             <SheetDescription className="text-sm text-text-secondary">
-              {modo === "duplicar"
+              {ajeno
+                ? "Puedes verlo y duplicarlo, pero no modificarlo."
+                : modo === "duplicar"
                 ? "Mismos datos con la fecha de hoy. Revísalo antes de guardar."
                 : "Los importes se guardan en su divisa y convertidos a euros."}
             </SheetDescription>
           </SheetHeader>
 
+          {ajeno && movimiento ? (
+            /* Guardarraíl. El menú ya esconde «Editar» en los movimientos
+               ajenos, así que llegar aquí significa que se ha entrado por otra
+               vía. La base de datos lo rechazaría igual (migración 0012); esto
+               es para que lo rechace con una frase y no con un error técnico. */
+            <div className="flex flex-1 flex-col items-start gap-4 p-4 sm:p-6">
+              <p className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm text-text-secondary">
+                <Lock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
+                <span>
+                  Este movimiento lo registró{" "}
+                  <span className="font-medium text-text-primary">
+                    {movimiento.autor?.nombre ?? "el otro socio"}
+                  </span>
+                  . Solo {movimiento.autor?.nombre ? "él" : "quien lo registró"}{" "}
+                  puede modificarlo o eliminarlo.
+                </span>
+              </p>
+
+              <p className="text-sm text-text-secondary">
+                Sí puedes <span className="text-text-primary">duplicarlo</span>:
+                se crea un movimiento nuevo a tu nombre y el suyo queda intacto.
+              </p>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => abrir("duplicar", movimiento)}
+                  className="min-h-11 rounded-lg bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-hover"
+                >
+                  Duplicar a mi nombre
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAbierto(false)}
+                  className="min-h-11 rounded-lg border border-border bg-surface-2 px-4 text-sm font-medium text-text-primary transition-colors hover:bg-surface"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          ) : (
           <FormularioMovimiento
             key={clave}
             modo={modo}
@@ -167,6 +225,7 @@ export function ProveedorMovimientos({
               setAbierto(false);
             }}
           />
+          )}
         </SheetContent>
       </Sheet>
 

@@ -45,6 +45,8 @@ export type Filtros = {
   tipo: FiltroTipo;
   categorias: string[];
   anticipado: string;
+  /** Uid de quien lo registró, o "todos". No es lo mismo que `anticipado`. */
+  registrado: string;
   reembolso: FiltroReembolso;
   q: string;
   orden: CampoOrden;
@@ -154,6 +156,7 @@ export function leerFiltros(
     tipo,
     categorias,
     anticipado: texto(params.anticipado) || "todos",
+    registrado: texto(params.registrado) || "todos",
     reembolso,
     q: texto(params.q).slice(0, 120),
     orden,
@@ -176,6 +179,9 @@ export function escribirFiltros(filtros: Partial<Filtros>): string {
   if (filtros.tipo && filtros.tipo !== "todos") params.set("tipo", filtros.tipo);
   if (filtros.categorias?.length) {
     params.set("categorias", filtros.categorias.join(","));
+  }
+  if (filtros.registrado && filtros.registrado !== "todos") {
+    params.set("registrado", filtros.registrado);
   }
   if (filtros.anticipado && filtros.anticipado !== "todos") {
     params.set("anticipado", filtros.anticipado);
@@ -202,6 +208,7 @@ export function hayFiltrosActivos(filtros: Filtros): boolean {
     filtros.tipo !== "todos" ||
     filtros.categorias.length > 0 ||
     filtros.anticipado !== "todos" ||
+    filtros.registrado !== "todos" ||
     filtros.reembolso !== "todos" ||
     filtros.q !== ""
   );

@@ -22,6 +22,36 @@ import type { FilaInsertMovimiento, TipoMovimiento } from "@/lib/tipos-db";
  * pueden invocar sin pasar por el formulario.
  */
 
+/**
+ * ¿Es mío este movimiento?
+ *
+ * Desde la migración 0012 solo el autor puede editar o borrar. La RLS no
+ * lanza error cuando bloquea: simplemente no ve la fila, el UPDATE afecta a
+ * cero y PostgREST devuelve éxito. Sin esta comprobación previa, quien
+ * intentase editar lo ajeno vería «Guardado» y no habría cambiado nada.
+ *
+ * Devuelve null si todo está en orden, o el mensaje que hay que enseñar.
+ */
+async function comprobarAutoria(
+  supabase: Awaited<ReturnType<typeof crearClienteServidor>>,
+  id: string,
+  usuarioId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("movimientos")
+    .select("created_by, autor:created_by ( nombre )")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!data) return "Ese movimiento ya no existe.";
+  if (data.created_by === usuarioId) return null;
+
+  const autor = (data.autor as { nombre?: string } | null)?.nombre;
+  return autor
+    ? `Este movimiento lo registró ${autor}. Solo él puede modificarlo o eliminarlo.`
+    : "Este movimiento lo registró el otro socio. Solo él puede modificarlo o eliminarlo.";
+}
+
 export type Resultado<T = undefined> =
   | { ok: true; datos?: T }
   | { ok: false; error: string; campo?: string };
@@ -226,9 +256,24 @@ export async function actualizarMovimiento(
   const { created_by: _autoria, ...cambios } = fila;
   void _autoria;
 
-  const { error } = await supabase.from("movimientos").update(cambios).eq("id", id);
+  // `.select()` obliga a PostgREST a devolver las filas tocadas. Si la RLS
+  // bloqueó, vienen cero y aquí no se canta un éxito que no ha pasado.
+  const { data: tocadas, error } = await supabase
+    .from("movimientos")
+    .update(cambios)
+    .eq("id", id)
+    .select("id");
 
   if (error) return { ok: false, error: mensajeDeError(error) };
+
+  if (!tocadas || tocadas.length === 0) {
+    return {
+      ok: false,
+      error:
+        (await comprobarAutoria(supabase, id, usuario.id)) ??
+        "No se ha podido guardar el cambio.",
+    };
+  }
 
   revalidar();
   return { ok: true };
@@ -238,8 +283,22 @@ export async function eliminarMovimiento(id: string): Promise<Resultado> {
   const { supabase, usuario } = await exigirSesion();
   if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
 
-  const { error } = await supabase.from("movimientos").delete().eq("id", id);
+  const { data: borradas, error } = await supabase
+    .from("movimientos")
+    .delete()
+    .eq("id", id)
+    .select("id");
+
   if (error) return { ok: false, error: mensajeDeError(error) };
+
+  if (!borradas || borradas.length === 0) {
+    return {
+      ok: false,
+      error:
+        (await comprobarAutoria(supabase, id, usuario.id)) ??
+        "No se ha podido eliminar el movimiento.",
+    };
+  }
 
   revalidar();
   return { ok: true };
@@ -252,13 +311,14 @@ export async function marcarReembolsado(
   const { supabase, usuario } = await exigirSesion();
   if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
 
-  const { error } = await supabase
-    .from("movimientos")
-    .update({
-      reembolsado,
-      fecha_reembolso: reembolsado ? new Date().toISOString().slice(0, 10) : null,
-    })
-    .eq("id", id);
+  // Por RPC y no con un UPDATE directo: marcar un reembolso es parte de la
+  // liquidación conjunta, así que los dos socios pueden hacerlo sobre
+  // cualquier gasto. Un UPDATE se lo comería la política de autoría (0012) y,
+  // peor, lo haría en silencio. La función acotada vive en la 0014.
+  const { error } = await supabase.rpc("fn_marcar_reembolsado", {
+    p_movimiento: id,
+    p_reembolsado: reembolsado,
+  });
 
   if (error) return { ok: false, error: mensajeDeError(error) };
 

@@ -259,20 +259,35 @@ export function BarraFiltros({
           </PopoverContent>
         </Popover>
 
-        {/* Anticipado por */}
+        {/* Anticipado por — quién puso el dinero */}
         <select
           aria-label="Anticipado por"
           value={filtros.anticipado}
           onChange={(evento) => navegar({ anticipado: evento.target.value })}
           className={cn(CLASE_CONTROL, "cursor-pointer pr-8")}
         >
-          <option value="todos">Cualquier socio</option>
+          <option value="todos">Anticipó: cualquiera</option>
           {socios.map((socio) => (
             <option key={socio.id} value={socio.id}>
-              {socio.nombre}
+              Anticipó: {socio.nombre}
             </option>
           ))}
           <option value="sin-asignar">Sin asignar</option>
+        </select>
+
+        {/* Registrado por — quién dio de alta la fila. No es lo mismo. */}
+        <select
+          aria-label="Registrado por"
+          value={filtros.registrado}
+          onChange={(evento) => navegar({ registrado: evento.target.value })}
+          className={cn(CLASE_CONTROL, "cursor-pointer pr-8")}
+        >
+          <option value="todos">Registró: todos</option>
+          {socios.map((socio) => (
+            <option key={socio.id} value={socio.id}>
+              Registró: {socio.nombre}
+            </option>
+          ))}
         </select>
 
         {/* Estado de reembolso */}

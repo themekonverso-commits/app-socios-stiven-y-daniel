@@ -36,6 +36,17 @@ import type { MovimientoConRelaciones } from "@/lib/tipos-db";
 /**
  * Acciones de una fila: editar, duplicar, marcar reembolso y eliminar.
  *
+ * QUÉ VE CADA SOCIO. Editar y Eliminar solo salen si el movimiento es suyo:
+ * la RLS los rechazaría igual, y ofrecer un botón que no funciona es peor que
+ * no ofrecerlo. Esconderlo es cortesía; la cerradura está en la base de datos.
+ *
+ * Dos acciones se quedan para los dos a propósito:
+ *   · DUPLICAR crea un movimiento NUEVO a nombre de quien duplica y no toca
+ *     el original. Es la vía legítima para registrar algo parecido a lo del
+ *     otro sin alterar su registro.
+ *   · MARCAR REEMBOLSO es parte de la liquidación conjunta, no una edición
+ *     del movimiento, y tiene sus propios disparadores que lo protegen.
+ *
  * El reembolso y el borrado se pintan de inmediato (actualización optimista) y
  * se revierten si el servidor falla, con su toast de error. Sin eso, cada clic
  * se sentiría lento aunque el servidor tarde poco.
@@ -50,7 +61,8 @@ export function MenuAcciones({
     cambio: { reembolsado?: boolean; eliminado?: boolean },
   ) => void;
 }) {
-  const { abrirEdicion, abrirDuplicado } = usePanelMovimiento();
+  const { abrirEdicion, abrirDuplicado, usuarioId } = usePanelMovimiento();
+  const esMio = movimiento.created_by === usuarioId;
   const [confirmarBorrado, setConfirmarBorrado] = useState(false);
   const [, iniciarTransicion] = useTransition();
 
@@ -100,10 +112,12 @@ export function MenuAcciones({
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="end" className="w-56 border-border bg-surface">
-          <DropdownMenuItem onSelect={() => abrirEdicion(movimiento)}>
-            <Pencil aria-hidden="true" className="size-4" />
-            Editar
-          </DropdownMenuItem>
+          {esMio ? (
+            <DropdownMenuItem onSelect={() => abrirEdicion(movimiento)}>
+              <Pencil aria-hidden="true" className="size-4" />
+              Editar
+            </DropdownMenuItem>
+          ) : null}
 
           <DropdownMenuItem onSelect={() => abrirDuplicado(movimiento)}>
             <Copy aria-hidden="true" className="size-4" />
@@ -126,18 +140,30 @@ export function MenuAcciones({
             </DropdownMenuItem>
           ) : null}
 
-          <DropdownMenuSeparator className="bg-border" />
-
-          <DropdownMenuItem
-            onSelect={(evento) => {
-              evento.preventDefault();
-              setConfirmarBorrado(true);
-            }}
-            className="text-danger focus:text-danger"
-          >
-            <Trash2 aria-hidden="true" className="size-4" />
-            Eliminar
-          </DropdownMenuItem>
+          {esMio ? (
+            <>
+              <DropdownMenuSeparator className="bg-border" />
+              <DropdownMenuItem
+                onSelect={(evento) => {
+                  evento.preventDefault();
+                  setConfirmarBorrado(true);
+                }}
+                className="text-danger focus:text-danger"
+              >
+                <Trash2 aria-hidden="true" className="size-4" />
+                Eliminar
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <>
+              <DropdownMenuSeparator className="bg-border" />
+              <div className="px-2 py-1.5 text-xs text-text-muted">
+                Lo registró {movimiento.autor?.nombre ?? "el otro socio"}. Solo
+                {" "}{movimiento.autor?.nombre ? "él" : "quien lo registró"}{" "}
+                puede modificarlo o eliminarlo.
+              </div>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
