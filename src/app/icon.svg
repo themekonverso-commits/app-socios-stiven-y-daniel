@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Socios">
+  <!-- El mismo logo que la sidebar: el rayo de lucide sobre el naranja de
+       marca (#f2551e, el token accent). Si cambia el color de marca, cambia
+       también aquí, y luego: node scripts/generar-iconos.mjs -->
+  <rect width="64" height="64" rx="15" fill="#f2551e"/>
+  <g transform="translate(11 11) scale(1.75)">
+    <path fill="#fff"
+          d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>
+  </g>
+</svg>

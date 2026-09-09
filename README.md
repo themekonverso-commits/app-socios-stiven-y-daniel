@@ -1049,6 +1049,17 @@ Responsive comprobado a 375, 768 y 1440 px.
 - **Añadir una ruta al menú:** se toca solo `src/lib/navegacion.ts`. La sidebar,
   el drawer, la barra inferior y el título de la barra superior salen todos de
   ahí.
+- **Cambiar el favicon:** la única fuente es `src/app/icon.svg` (el mismo rayo
+  de lucide sobre el naranja de marca que usa la sidebar). Después de editarlo
+  hay que rehacer los rasterizados:
+
+  ```bash
+  node scripts/generar-iconos.mjs
+  ```
+
+  Eso regenera `src/app/favicon.ico` (con PNG de 16, 32 y 48 px dentro) y
+  `src/app/apple-icon.png` (180 px). Next.js pone las tres etiquetas `<link>`
+  solo por que los archivos existan con esos nombres.
 - **`npm audit`** avisa de una vulnerabilidad de `postcss` que entra como
   dependencia transitiva de Next.js 15. Corregirla obliga a subir a Next.js 16,
   que es un cambio mayor y sale del stack acordado. Afecta al proceso de build,
