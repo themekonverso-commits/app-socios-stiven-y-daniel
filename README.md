@@ -645,10 +645,24 @@ número a pelo: `${valor} %` daba «20.6 %» con punto en una interfaz en españ
 `src/lib/periodo.ts` es la única traducción entre la URL y el periodo. Vive en
 la query string, así que una vista se comparte y el botón «atrás» funciona.
 
+Presets, de menor a mayor rango y separados por bloques en el desplegable:
+Hoy · Ayer · Esta semana · Semana pasada · Últimos 7 · 15 · 30 días · Este mes · Mes
+anterior · Este trimestre · Este año · Personalizado. Las semanas son naturales
+(lunes a domingo). La lista y los rangos viven en `src/lib/periodo.ts` y
+/movimientos los reutiliza (`esquemas/filtros.ts`), así que las dos pantallas
+ofrecen lo mismo. El menú es `components/campos/menu-periodo.tsx`: popover en
+escritorio y panel inferior por debajo de 768 px.
+
+«Hoy» se calcula con la fecha de **Europe/Madrid**, no con la del servidor:
+Vercel corre en UTC y de 00:00 a 02:00 seguiría siendo ayer.
+
 La comparación es siempre contra el periodo **inmediatamente anterior de la
 misma duración**: comparar un mes en curso contra un mes completo daría caídas
-fantasma. La agrupación del eje temporal se elige sola: por día hasta 31, por
-semana hasta 90, por mes a partir de ahí.
+fantasma. Así «Hoy» compara con ayer, «Ayer» con anteayer y «Esta semana» con la semana pasada. La
+agrupación del eje temporal se elige sola: por día hasta 31, por semana hasta
+90, por mes a partir de ahí. **«Hoy» y «Ayer» no se desglosan por horas**: `fecha` es una
+fecha sin hora y `created_at` dice cuándo se anotó, no cuándo se vendió, así que
+el gráfico muestra el total del día.
 
 El **saldo de caja es el único KPI que ignora el selector**: el disponible es el
 que es, no depende del rango que estés mirando.
@@ -714,7 +728,7 @@ interfaz**.
 
 Los 3.000 € no son «lo máximo que un socio puede adelantar». Son el cupo de una
 **tarjeta de crédito destinada en exclusiva a inversión publicitaria**. Si
-Néstor adelanta su mitad de Shopify o de Klaviyo, ese gasto **no consume
+Daniel adelanta su mitad de Shopify o de Klaviyo, ese gasto **no consume
 tarjeta**, aunque se le deba exactamente igual.
 
 El ámbito vive en el propio ajuste (migración `0011`):
@@ -1119,7 +1133,7 @@ bloqueado por política devuelve éxito en PostgREST. Tal cual, editar un
 movimiento ajeno habría dicho «Guardado» sin guardar nada. Por eso todas las
 escrituras piden `.select()` y comprueban cuántas filas volvieron; si son cero,
 la acción busca al autor y devuelve la frase completa: «Este movimiento lo
-registró Néstor. Solo él puede modificarlo o eliminarlo.»
+registró Daniel. Solo él puede modificarlo o eliminarlo.»
 
 **2. Crear a nombre de otro.** La política de INSERT solo exigía ser socio
 activo, así que un socio podía dar de alta una fila firmada por el otro. Con la

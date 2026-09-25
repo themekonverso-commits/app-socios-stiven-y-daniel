@@ -1,14 +1,8 @@
 import {
-  endOfMonth,
-  endOfQuarter,
-  endOfYear,
-  format,
-  startOfMonth,
-  startOfQuarter,
-  startOfYear,
-  subDays,
-  subMonths,
-} from "date-fns";
+  PRESETS_PERIODO,
+  rangoDePresetPeriodo,
+  type PresetPeriodo,
+} from "@/lib/periodo";
 
 /**
  * Filtros de /movimientos.
@@ -19,16 +13,12 @@ import {
  * (navegador) y la exportación a CSV.
  */
 
-export const PRESETS_FECHA = [
-  { valor: "este-mes", etiqueta: "Este mes" },
-  { valor: "mes-anterior", etiqueta: "Mes anterior" },
-  { valor: "ultimos-30", etiqueta: "Últimos 30 días" },
-  { valor: "este-trimestre", etiqueta: "Este trimestre" },
-  { valor: "este-ano", etiqueta: "Este año" },
-  { valor: "personalizado", etiqueta: "Personalizado" },
-] as const;
-
-export type PresetFecha = (typeof PRESETS_FECHA)[number]["valor"];
+/**
+ * Los mismos presets y rangos que el selector de periodo del dashboard, para
+ * que las dos pantallas ofrezcan exactamente las mismas opciones.
+ */
+export const PRESETS_FECHA = PRESETS_PERIODO;
+export type PresetFecha = PresetPeriodo;
 export const PRESET_POR_DEFECTO: PresetFecha = "este-mes";
 
 export type FiltroTipo = "todos" | "ingreso" | "gasto";
@@ -54,33 +44,8 @@ export type Filtros = {
   pagina: number;
 };
 
-const iso = (fecha: Date) => format(fecha, "yyyy-MM-dd");
-
-/** Rango de fechas de un preset, calculado con la fecha local de hoy. */
-export function rangoDePreset(
-  preset: PresetFecha,
-  hoy = new Date(),
-): { desde: string; hasta: string } {
-  switch (preset) {
-    case "mes-anterior": {
-      const mesPasado = subMonths(hoy, 1);
-      return {
-        desde: iso(startOfMonth(mesPasado)),
-        hasta: iso(endOfMonth(mesPasado)),
-      };
-    }
-    case "ultimos-30":
-      return { desde: iso(subDays(hoy, 29)), hasta: iso(hoy) };
-    case "este-trimestre":
-      return { desde: iso(startOfQuarter(hoy)), hasta: iso(endOfQuarter(hoy)) };
-    case "este-ano":
-      return { desde: iso(startOfYear(hoy)), hasta: iso(endOfYear(hoy)) };
-    case "este-mes":
-    case "personalizado":
-    default:
-      return { desde: iso(startOfMonth(hoy)), hasta: iso(endOfMonth(hoy)) };
-  }
-}
+/** Rango de fechas de un preset, calculado con la fecha de hoy en España. */
+export const rangoDePreset = rangoDePresetPeriodo;
 
 const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 

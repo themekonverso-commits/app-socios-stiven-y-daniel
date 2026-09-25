@@ -9,9 +9,9 @@ import {
   useTransition,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 
-import { SelectorFecha } from "@/components/campos/selector-fecha";
+import { MenuPeriodo } from "@/components/campos/menu-periodo";
 import {
   Popover,
   PopoverContent,
@@ -25,7 +25,6 @@ import {
   hayFiltrosActivos,
   rangoDePreset,
   type Filtros,
-  type PresetFecha,
 } from "@/lib/esquemas/filtros";
 import type { Categoria, Perfil } from "@/lib/tipos-db";
 
@@ -114,77 +113,31 @@ export function BarraFiltros({
     >
       <div className="flex flex-wrap items-center gap-2">
         {/* Rango de fechas */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <button type="button" className={CLASE_CONTROL}>
-              <span className="cifra truncate">
-                {PRESETS_FECHA.find((p) => p.valor === filtros.preset)?.etiqueta}
-              </span>
-              <span className="hidden text-text-muted sm:inline">
-                {formatearFecha(filtros.desde)} – {formatearFecha(filtros.hasta)}
-              </span>
-              <ChevronDown aria-hidden="true" className="size-4 text-text-muted" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-72 border-border bg-surface p-2">
-            <div className="flex flex-col gap-1">
-              {PRESETS_FECHA.map((preset) => (
-                <button
-                  key={preset.valor}
-                  type="button"
-                  onClick={() => {
-                    if (preset.valor === "personalizado") {
-                      navegar({ preset: "personalizado" });
-                      return;
-                    }
-                    const rango = rangoDePreset(preset.valor as PresetFecha);
-                    navegar({ preset: preset.valor as PresetFecha, ...rango });
-                  }}
-                  className={cn(
-                    "flex min-h-11 items-center gap-2 rounded-lg px-3 text-left text-sm transition-colors",
-                    filtros.preset === preset.valor
-                      ? "bg-surface-2 font-medium text-text-primary"
-                      : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
-                  )}
-                >
-                  <Check
-                    aria-hidden="true"
-                    className={cn(
-                      "size-4 text-brand",
-                      filtros.preset === preset.valor ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  {preset.etiqueta}
-                </button>
-              ))}
-            </div>
-
-            {filtros.preset === "personalizado" ? (
-              <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-text-secondary">Desde</span>
-                  <SelectorFecha
-                    valor={filtros.desde}
-                    conAccesosRapidos={false}
-                    alCambiar={(valor) =>
-                      navegar({ preset: "personalizado", desde: valor })
-                    }
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-text-secondary">Hasta</span>
-                  <SelectorFecha
-                    valor={filtros.hasta}
-                    conAccesosRapidos={false}
-                    alCambiar={(valor) =>
-                      navegar({ preset: "personalizado", hasta: valor })
-                    }
-                  />
-                </div>
-              </div>
-            ) : null}
-          </PopoverContent>
-        </Popover>
+        <MenuPeriodo
+          preset={filtros.preset}
+          desde={filtros.desde}
+          hasta={filtros.hasta}
+          alineacion="start"
+          alElegirPreset={(preset) => {
+            if (preset === "personalizado") {
+              navegar({ preset: "personalizado" });
+              return;
+            }
+            navegar({ preset, ...rangoDePreset(preset) });
+          }}
+          alCambiarDesde={(valor) => navegar({ preset: "personalizado", desde: valor })}
+          alCambiarHasta={(valor) => navegar({ preset: "personalizado", hasta: valor })}
+        >
+          <button type="button" className={CLASE_CONTROL}>
+            <span className="cifra truncate">
+              {PRESETS_FECHA.find((p) => p.valor === filtros.preset)?.etiqueta}
+            </span>
+            <span className="hidden text-text-muted sm:inline">
+              {formatearFecha(filtros.desde)} – {formatearFecha(filtros.hasta)}
+            </span>
+            <ChevronDown aria-hidden="true" className="size-4 text-text-muted" />
+          </button>
+        </MenuPeriodo>
 
         {/* Tipo */}
         <div

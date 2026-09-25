@@ -115,7 +115,9 @@ async function BloqueGraficos({ periodo }: { periodo: Periodo }) {
 
   const agrupacion = agrupacionDePeriodo(periodo);
   const descripcion =
-    agrupacion === "dia"
+    diasDelPeriodo(periodo) === 1
+      ? "Total del día. Los movimientos no llevan hora, así que no se desglosa por horas."
+      : agrupacion === "dia"
       ? "Agrupado por día."
       : agrupacion === "semana"
         ? "Agrupado por semana."
