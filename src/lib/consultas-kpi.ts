@@ -93,26 +93,42 @@ export async function obtenerResumenComparado(periodo: Periodo): Promise<{
   return { actual, anterior, hayAnterior };
 }
 
+/**
+ * Caja del negocio, partida en dos (migración 0015).
+ *
+ * El saldo en banco solo cuenta lo que de verdad ha entrado o salido de la
+ * cuenta: los netos que ha pagado Shopify, los gastos pagados por el negocio y
+ * los reembolsos a socios. Las ventas que Shopify aún no ha pagado van aparte,
+ * como pendiente; y lo que un socio adelantó de su bolsillo no toca el banco.
+ */
 export type SaldoCaja = {
   saldoInicial: number;
   fechaInicial: string | null;
-  ingresos: number;
-  gastos: number;
-  saldo: number;
+  cobradoNeto: number;
+  gastosNegocio: number;
+  reembolsos: number;
+  saldoBanco: number;
+  ventas: number;
+  cobradoBruto: number;
+  pendienteShopify: number;
 };
 
-/** Saldo disponible hoy. No depende del selector de periodo. */
+/** Saldo en banco hoy. No depende del selector de periodo. */
 export async function obtenerSaldoCaja(): Promise<SaldoCaja> {
   const supabase = await crearClienteServidor();
-  const { data, error } = await supabase.rpc("fn_saldo_caja");
+  const { data, error } = await supabase.rpc("fn_saldo_banco");
 
   if (error || !data || data.length === 0) {
     return {
       saldoInicial: 0,
       fechaInicial: null,
-      ingresos: 0,
-      gastos: 0,
-      saldo: 0,
+      cobradoNeto: 0,
+      gastosNegocio: 0,
+      reembolsos: 0,
+      saldoBanco: 0,
+      ventas: 0,
+      cobradoBruto: 0,
+      pendienteShopify: 0,
     };
   }
 
@@ -120,9 +136,13 @@ export async function obtenerSaldoCaja(): Promise<SaldoCaja> {
   return {
     saldoInicial: n(fila.saldo_inicial),
     fechaInicial: fila.fecha_inicial ?? null,
-    ingresos: n(fila.ingresos),
-    gastos: n(fila.gastos),
-    saldo: n(fila.saldo),
+    cobradoNeto: n(fila.cobrado_neto),
+    gastosNegocio: n(fila.gastos_negocio),
+    reembolsos: n(fila.reembolsos),
+    saldoBanco: n(fila.saldo_banco),
+    ventas: n(fila.ventas),
+    cobradoBruto: n(fila.cobrado_bruto),
+    pendienteShopify: n(fila.pendiente_shopify),
   };
 }
 

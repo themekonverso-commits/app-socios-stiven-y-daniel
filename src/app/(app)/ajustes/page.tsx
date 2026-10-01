@@ -20,7 +20,7 @@ export default async function PaginaAjustes() {
       <FormularioAjustes
         saldoInicial={saldoInicial}
         objetivos={objetivos}
-        saldoActual={saldo.saldo}
+        saldoActual={saldo.saldoBanco}
       />
     </div>
   );

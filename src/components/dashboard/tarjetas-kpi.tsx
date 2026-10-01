@@ -139,19 +139,19 @@ export function TarjetasKpi({
         etiquetaVariacion={vs}
       />
 
-      {/* 6 · SALDO DE CAJA — NO depende del selector de periodo */}
+      {/* 6 · SALDO EN BANCO — NO depende del selector de periodo */}
       <KpiCard
         icono={Wallet}
-        titulo="Saldo de caja"
-        subtitulo="Disponible hoy"
-        valor={formatearEuros(saldo.saldo)}
-        claseValor={saldo.saldo >= 0 ? "text-text-primary" : "text-danger"}
+        titulo="Saldo en banco"
+        subtitulo={`${formatearEuros(saldo.pendienteShopify)} pendientes en Shopify`}
+        valor={formatearEuros(saldo.saldoBanco)}
+        claseValor={saldo.saldoBanco >= 0 ? "text-text-primary" : "text-danger"}
         nota={
           saldo.fechaInicial
             ? "Al margen del periodo seleccionado"
             : "Configura el saldo inicial en Ajustes"
         }
-        enlace={{ href: "/ajustes", texto: "Ajustar saldo" }}
+        enlace={{ href: "/cobros", texto: "Ver cobros" }}
       />
     </div>
   );

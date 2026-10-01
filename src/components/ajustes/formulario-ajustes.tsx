@@ -47,10 +47,11 @@ export function FormularioAjustes({
   return (
     <form onSubmit={enviar} className="flex flex-col gap-5">
       <section className="rounded-xl border border-border bg-surface p-4 sm:p-5">
-        <h2 className="text-base font-semibold text-text-primary">Saldo de caja</h2>
+        <h2 className="text-base font-semibold text-text-primary">Saldo en banco</h2>
         <p className="mt-0.5 text-xs text-text-secondary">
           La aplicación no ve tu banco. Dile cuánto había en un día concreto y a
-          partir de ahí suma los ingresos y resta los gastos registrados.
+          partir de ahí suma lo que ha pagado Shopify (/cobros) y resta los
+          gastos pagados por el negocio y los reembolsos a socios.
         </p>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -75,7 +76,7 @@ export function FormularioAjustes({
         </div>
 
         <p className="cifra mt-4 rounded-lg border border-border bg-base px-3 py-2 text-sm text-text-secondary">
-          Saldo disponible hoy con los datos actuales:{" "}
+          Saldo en banco hoy con los datos actuales:{" "}
           <span className="font-semibold text-text-primary">
             {formatearEuros(saldoActual)}
           </span>

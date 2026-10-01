@@ -3,6 +3,7 @@ import {
   CalendarDays,
   ChartColumn,
   FileDown,
+  Landmark,
   LayoutDashboard,
   Scale,
   Settings,
@@ -43,6 +44,7 @@ export const NAVEGACION: GrupoNavegacion[] = [
         icono: CalendarDays,
         fase: 1,
       },
+      { titulo: "Cobros", href: "/cobros", icono: Landmark, fase: 5 },
     ],
   },
   {

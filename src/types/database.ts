@@ -171,6 +171,120 @@ export type Database = {
           },
         ]
       }
+      cobros_pasarela: {
+        Row: {
+          comisiones: number
+          created_at: string | null
+          created_by: string
+          devoluciones: number
+          fecha_cobro: string
+          id: string
+          importe_bruto: number
+          importe_neto: number
+          movimiento_comision_id: string | null
+          movimiento_devolucion_id: string | null
+          notas: string | null
+          otros_ajustes: number
+          periodo_desde: string
+          periodo_hasta: string
+          plataforma: string
+          referencia: string | null
+        }
+        Insert: {
+          comisiones?: number
+          created_at?: string | null
+          created_by?: string
+          devoluciones?: number
+          fecha_cobro: string
+          id?: string
+          importe_bruto: number
+          importe_neto: number
+          movimiento_comision_id?: string | null
+          movimiento_devolucion_id?: string | null
+          notas?: string | null
+          otros_ajustes?: number
+          periodo_desde: string
+          periodo_hasta: string
+          plataforma?: string
+          referencia?: string | null
+        }
+        Update: {
+          comisiones?: number
+          created_at?: string | null
+          created_by?: string
+          devoluciones?: number
+          fecha_cobro?: string
+          id?: string
+          importe_bruto?: number
+          importe_neto?: number
+          movimiento_comision_id?: string | null
+          movimiento_devolucion_id?: string | null
+          notas?: string | null
+          otros_ajustes?: number
+          periodo_desde?: string
+          periodo_hasta?: string
+          plataforma?: string
+          referencia?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cobros_pasarela_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_socio"
+            referencedColumns: ["socio_id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "movimientos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_pendientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "vw_libro_gestoria"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_devolucion_id_fkey"
+            columns: ["movimiento_devolucion_id"]
+            isOneToOne: false
+            referencedRelation: "movimientos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_devolucion_id_fkey"
+            columns: ["movimiento_devolucion_id"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_pendientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_devolucion_id_fkey"
+            columns: ["movimiento_devolucion_id"]
+            isOneToOne: false
+            referencedRelation: "vw_libro_gestoria"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cuentas_activos: {
         Row: {
           aviso_dias: number
@@ -791,6 +905,32 @@ export type Database = {
         }
         Relationships: []
       }
+      vw_cobros_conciliacion: {
+        Row: {
+          autor_nombre: string | null
+          comisiones: number | null
+          created_at: string | null
+          created_by: string | null
+          cuadra: boolean | null
+          devoluciones: number | null
+          diferencia: number | null
+          fecha_cobro: string | null
+          id: string | null
+          importe_bruto: number | null
+          importe_neto: number | null
+          movimiento_comision_id: string | null
+          movimiento_devolucion_id: string | null
+          notas: string | null
+          otros_ajustes: number | null
+          pct_comision: number | null
+          periodo_desde: string | null
+          periodo_hasta: string | null
+          plataforma: string | null
+          referencia: string | null
+          ventas_registradas: number | null
+        }
+        Relationships: []
+      }
       vw_cuentas_coste: {
         Row: {
           aviso_dias: number | null
@@ -1016,15 +1156,23 @@ export type Database = {
         }[]
       }
       fn_retirar_aprobacion: { Args: { p_cierre: string }; Returns: Json }
-      fn_saldo_caja: {
-        Args: never
+      fn_saldo_banco: {
+        Args: { p_fecha_corte?: string }
         Returns: {
+          cobrado_bruto: number
+          cobrado_neto: number
           fecha_inicial: string
-          gastos: number
-          ingresos: number
-          saldo: number
+          gastos_negocio: number
+          pendiente_shopify: number
+          reembolsos: number
+          saldo_banco: number
           saldo_inicial: number
+          ventas: number
         }[]
+      }
+      fn_ventas_registradas: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: number
       }
     }
     Enums: {

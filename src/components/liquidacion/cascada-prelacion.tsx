@@ -223,7 +223,7 @@ export function CascadaPrelacion({ estado }: { estado: EstadoLiquidacion }) {
           { etiqueta: "Ingresos", valor: estado.ingresos_acumulados },
           { etiqueta: "Gastos", valor: estado.gastos_acumulados },
           { etiqueta: "Resultado", valor: estado.resultado_acumulado },
-          { etiqueta: "Caja disponible", valor: estado.caja_disponible },
+          { etiqueta: "Caja disponible (saldo en banco)", valor: estado.caja_disponible },
         ].map((celda) => (
           <div
             key={celda.etiqueta}

@@ -609,7 +609,7 @@ Los agregados los hace **Postgres**, no el navegador ni el servidor de Next.
 | `vw_resumen_mensual` | un mes por fila, con margen, ROAS y ticket medio ya calculados |
 | `vw_gastos_categoria` | gastos por mes y categoría |
 | `fn_resumen_periodo(desde, hasta)` | los totales de un rango en UNA fila |
-| `fn_saldo_caja()` | el disponible de hoy |
+| `fn_saldo_caja()` | el disponible de hoy. **Sustituida en la 0015** por `fn_saldo_banco()` (sección 17) |
 
 Las tres vistas llevan **`security_invoker = true`**. Sin eso, una vista se
 ejecuta como su propietario y **saltaría la RLS** de las tablas base. Las dos
@@ -664,7 +664,7 @@ agrupación del eje temporal se elige sola: por día hasta 31, por semana hasta
 fecha sin hora y `created_at` dice cuándo se anotó, no cuándo se vendió, así que
 el gráfico muestra el total del día.
 
-El **saldo de caja es el único KPI que ignora el selector**: el disponible es el
+El **saldo en banco es el único KPI que ignora el selector**: el disponible es el
 que es, no depende del rango que estés mirando.
 
 ### Gráficos: dos cosas que costaron encontrar
@@ -1166,7 +1166,104 @@ que les tocan. Saltan la comprobación de autoría, no la de pertenencia.
 
 ---
 
-## 17. Notas de mantenimiento
+## 17. Cobros de la pasarela y saldo en banco
+
+Migración **0015**. Registra los payouts de Shopify al banco **sin duplicar
+ingresos**.
+
+### El payout no es un ingreso
+
+Las ventas ya entran como ingreso en `/diario`. El payout es el **cobro de esas
+mismas ventas** con las comisiones descontadas: registrarlo como ingreso
+duplicaría la facturación. Lo único nuevo que trae son sus gastos.
+
+Al guardar un cobro, **en la misma transacción** y por disparador
+(`cobros_generar_gastos`):
+
+| Se crea | Categoría | Importe |
+| --- | --- | --- |
+| Gasto «Comisiones Shopify — pago del DD/MM» | Comisiones pasarela de pago | `comisiones` |
+| Gasto «Devoluciones Shopify — pago del DD/MM», si las hay | Devoluciones y reembolsos | `devoluciones` |
+| Ningún ingreso | — | — |
+
+Los dos gastos van sin `anticipado_por` (se descontaron solos del payout), con
+fecha = `fecha_cobro` y sin IVA. Editar el cobro los ajusta y borrarlo los
+borra. Un gasto generado **no se puede tocar desde /movimientos**
+(`proteger_gasto_de_cobro`): si alguien cambiase la comisión allí, el cobro
+diría una cosa y la cuenta de resultados otra.
+
+### Tres cerraduras sobre el neto
+
+El neto no se escribe: lo calcula el formulario en vivo, lo recalcula el
+Server Action (`calcularNeto`) y la base de datos lo comprueba con un CHECK:
+`importe_neto = importe_bruto − comisiones − devoluciones + otros_ajustes`.
+Además, la misma **referencia de payout no entra dos veces** (índice único por
+plataforma).
+
+### Conciliación
+
+`vw_cobros_conciliacion` compara el bruto de cada cobro con las ventas de
+«Ventas Shopify» registradas entre `periodo_desde` y `periodo_hasta`. El
+formulario lo enseña **antes de guardar** (`fn_ventas_registradas`), y al
+guardar y en el listado sale en ámbar si no cuadra:
+
+> Shopify dice 320,00 € de ventas, en /diario hay 305,00 €. Faltan 15,00 € por
+> registrar.
+
+Así aparecen los días que se olvidó apuntar.
+
+### El saldo de caja, partido en dos
+
+Antes era `saldo inicial + ingresos − gastos`, y eso daba por cobrado dinero que
+seguía en Shopify y restaba gastos que había pagado un socio de su bolsillo.
+`fn_saldo_banco(fecha)` sustituye a `fn_saldo_caja()`, que se eliminó:
+
+| Cifra | Cálculo |
+| --- | --- |
+| **Saldo en banco** | saldo inicial + netos cobrados − gastos pagados por el negocio (`anticipado_por` nulo, **sin** los generados por cobros, que ya van restados en el neto) − reembolsos pagados a socios |
+| **Pendiente en Shopify** | ventas registradas − brutos ya cobrados |
+
+La tarjeta de caja del dashboard muestra el saldo en banco con el pendiente
+como subtítulo, y `fn_estado_liquidacion` usa el saldo en banco como
+`caja_disponible`.
+
+Dos límites conocidos:
+
+- Los ingresos que **no** son «Ventas Shopify» (categoría «Otros ingresos») no
+  suman al banco ni al pendiente: la fórmula solo cuenta lo que llega por
+  cobros. Hoy no hay ninguno.
+- Todas las ventas de /diario se dan por cobrables vía Shopify Payments. Si
+  alguna se cobra por otra vía (PayPal, transferencia), se registra como cobro
+  con esa plataforma para que no quede como pendiente para siempre.
+
+### Semáforo
+
+En /kpis, si la comisión media del periodo supera el **4 % del bruto**, alerta
+ámbar. Es comisiones totales entre bruto total, no la media de los
+porcentajes: un payout pequeño con comisión fija alta no pesa como uno grande.
+
+### Cómo se aplicó
+
+La 0015 se aplicó el 01/10/2026 desde el SQL Editor del panel de Supabase, en
+una sola transacción, y se anotó a mano en
+`supabase_migrations.schema_migrations` (versión `0015`) para que `db push` no
+intente aplicarla otra vez. El proyecto está en la cuenta de Supabase
+**konversoacademy**, organización «eCommerce - Stiven y Daniel».
+
+### Tests
+
+`supabase/tests/cobros.sql`, 12 casos, dentro de `BEGIN … ROLLBACK` y con
+fechas de 2030 para no mezclarse con los datos reales: cobro que cuadra, neto
+que no cuadra, cobro con devoluciones, edición, gasto generado protegido,
+borrado solo por el autor, borrado que arrastra sus gastos, referencia
+duplicada, saldo en banco con gastos anticipados por socios (que no restan),
+pendiente en Shopify, conciliación con descuadre y caja de la liquidación.
+Ejecutados contra el remoto: 12/12, y los otros tres archivos siguen en verde
+(liquidación 13/13, IVA 6/6, permisos 20/20).
+
+---
+
+## 18. Notas de mantenimiento
 
 - **Añadir una ruta al menú:** se toca solo `src/lib/navegacion.ts`. La sidebar,
   el drawer, la barra inferior y el título de la barra superior salen todos de

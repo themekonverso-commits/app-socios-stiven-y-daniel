@@ -31,6 +31,7 @@ import {
 } from "@/lib/consultas-liquidacion";
 import { leerPeriodo, type Periodo } from "@/lib/periodo";
 import { obtenerResumenCuentas } from "@/lib/consultas-cuentas";
+import { obtenerResumenCobros } from "@/lib/consultas-cobros";
 import { trimestreDe } from "@/lib/trimestres";
 import { calcularRoas, porcentaje } from "@/lib/kpis";
 import { formatearEuros, formatearFecha, formatearNumero } from "@/lib/formato";
@@ -95,6 +96,7 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     socios,
     { limite, avisoPct },
     cierres,
+    cobros,
   ] = await Promise.all([
     obtenerResumen(periodo.desde, periodo.hasta),
     obtenerResumen(inicioMes, finMes),
@@ -103,6 +105,7 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     obtenerResumenSocios(),
     obtenerLimiteAportacion(),
     obtenerCierres(),
+    obtenerResumenCobros(periodo.desde, periodo.hasta),
   ]);
 
   const cuentas = await obtenerResumenCuentas();
@@ -141,12 +144,22 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     });
   }
 
-  if (saldo.saldo < 500) {
+  if (saldo.saldoBanco < 500) {
     alertas.push({
       nivel: "ambar",
-      titulo: `Saldo de caja bajo: ${formatearEuros(saldo.saldo)}`,
+      titulo: `Saldo en banco bajo: ${formatearEuros(saldo.saldoBanco)}`,
       detalle:
         "Por debajo de 500 € cualquier imprevisto obliga a que un socio adelante dinero.",
+    });
+  }
+
+  // Comisión de la pasarela: sobre el bruto de los cobros del periodo.
+  if (cobros.pctMedio !== null && cobros.pctMedio > 4) {
+    alertas.push({
+      nivel: "ambar",
+      titulo: `La pasarela se lleva el ${formatearNumero(cobros.pctMedio)} % de lo cobrado`,
+      detalle: `${formatearEuros(cobros.comisiones)} de comisiones sobre ${formatearEuros(cobros.bruto)} de ventas en ${cobros.numero} cobro${cobros.numero === 1 ? "" : "s"}. Por encima del 4 % conviene revisar el plan de Shopify Payments o los métodos de pago.`,
+      enlace: { href: "/cobros", texto: "Ver los cobros" },
     });
   }
 
