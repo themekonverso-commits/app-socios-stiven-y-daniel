@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       ajustes: {
@@ -929,7 +904,64 @@ export type Database = {
           referencia: string | null
           ventas_registradas: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "cobros_pasarela_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_socio"
+            referencedColumns: ["socio_id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "movimientos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_pendientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "vw_libro_gestoria"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_devolucion_id_fkey"
+            columns: ["movimiento_devolucion_id"]
+            isOneToOne: false
+            referencedRelation: "movimientos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_devolucion_id_fkey"
+            columns: ["movimiento_devolucion_id"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_pendientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobros_pasarela_movimiento_devolucion_id_fkey"
+            columns: ["movimiento_devolucion_id"]
+            isOneToOne: false
+            referencedRelation: "vw_libro_gestoria"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vw_cuentas_coste: {
         Row: {
@@ -1070,6 +1102,17 @@ export type Database = {
       fn_anular_reembolso: { Args: { p_reembolso: string }; Returns: undefined }
       fn_aprobar_cierre: { Args: { p_cierre: string }; Returns: Json }
       fn_categoria_limite: { Args: never; Returns: string }
+      fn_cobro_sincronizar_gasto: {
+        Args: {
+          p_autor: string
+          p_categoria: string
+          p_concepto: string
+          p_fecha: string
+          p_importe: number
+          p_movimiento: string
+        }
+        Returns: string
+      }
       fn_crear_cierre: {
         Args: {
           p_etiqueta: string
@@ -1302,9 +1345,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },
