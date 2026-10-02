@@ -1,16 +1,21 @@
-import { CircleAlert, TriangleAlert } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, CircleAlert, TriangleAlert } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { formatearEuros } from "@/lib/formato";
+import { formatearEuros, formatearFecha } from "@/lib/formato";
 import { porcentaje } from "@/lib/kpis";
-import type { ResumenSocio } from "@/lib/tipos-liquidacion";
+import type { MovimientoCupo, ResumenSocio } from "@/lib/tipos-liquidacion";
+
+/** Cuántos movimientos caben en el cuadro antes de mandar al listado. */
+const MAXIMO_VISIBLES = 5;
 
 /**
  * R6 — cupo de aportación acordado y reunión de continuidad.
  *
- * El cupo NO es «lo máximo que un socio puede adelantar»: es el tope de una
- * tarjeta de crédito destinada en exclusiva a publicidad. Un anticipo de otra
- * categoría —Shopify, Klaviyo, la gestoría— se reembolsa exactamente igual,
+ * El cupo NO es «lo máximo que un socio puede adelantar»: es el tope de la
+ * tarjeta de crédito con la que se pagan la publicidad, el producto y su envío
+ * (0016). Un anticipo de otra categoría —Shopify, Klaviyo, la gestoría— se
+ * reembolsa exactamente igual,
  * pero no gasta tarjeta. Por eso la barra mide `anticipado_cupo` y lo demás
  * aparece debajo, dicho con todas las letras: si alguien lee solo la barra no
  * puede acabar creyendo que ese gasto se ha perdido.
@@ -24,12 +29,21 @@ export function LimiteAportacion({
   limite,
   avisoPct,
   ambito,
+  movimientos = [],
+  totalMovimientos = 0,
+  enlaceMovimientos = null,
 }: {
   socio: ResumenSocio;
   limite: number;
   avisoPct: number;
-  /** Categoría a la que se limita el cupo. Null = cuenta todos los anticipos. */
+  /** Categorías del cupo en una frase, en minúscula. Null = cuenta todos los anticipos. */
   ambito: string | null;
+  /** Los últimos anticipos que consumen el cupo, del más reciente al más antiguo. */
+  movimientos?: MovimientoCupo[];
+  /** Cuántos hay en total, para saber si hace falta el botón. */
+  totalMovimientos?: number;
+  /** /movimientos ya filtrado por este socio y las categorías del cupo. */
+  enlaceMovimientos?: string | null;
 }) {
   const consumido = socio.anticipado_cupo;
   const fuera = socio.anticipado_otros;
@@ -43,8 +57,8 @@ export function LimiteAportacion({
   const colorBarra =
     nivel === "superado" ? "bg-danger" : nivel === "aviso" ? "bg-warning" : "bg-success";
 
-  // «…acordados para publicidad», en minúscula, dentro de la frase.
-  const paraQue = ambito ? ` para ${ambito.toLowerCase()}` : "";
+  // «…acordados para publicidad, coste de producto y envíos y logística».
+  const paraQue = ambito ? ` para ${ambito}` : "";
 
   return (
     <div className="flex flex-col gap-3">
@@ -119,6 +133,52 @@ export function LimiteAportacion({
           </span>
         </p>
       ) : null}
+
+      <section aria-labelledby="cupo-movimientos" className="flex flex-col gap-2 border-t border-border pt-4">
+        <h3
+          id="cupo-movimientos"
+          className="text-xs font-semibold tracking-wide text-text-muted uppercase"
+        >
+          Últimos gastos en el cupo
+        </h3>
+
+        {movimientos.length === 0 ? (
+          <p className="text-sm text-text-muted">
+            Todavía no hay gastos que consuman el cupo.
+          </p>
+        ) : (
+          <ul className="flex flex-col">
+            {movimientos.slice(0, MAXIMO_VISIBLES).map((m) => (
+              <li
+                key={m.id}
+                className="flex items-baseline justify-between gap-3 border-b border-border/60 py-2 last:border-b-0"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm text-text-primary">
+                    {m.concepto}
+                  </span>
+                  <span className="cifra block text-xs text-text-muted">
+                    {formatearFecha(m.fecha)} · {m.categoria}
+                  </span>
+                </span>
+                <span className="cifra shrink-0 text-sm font-medium text-text-primary">
+                  {formatearEuros(m.total_eur)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {totalMovimientos > MAXIMO_VISIBLES && enlaceMovimientos ? (
+          <Link
+            href={enlaceMovimientos}
+            className="mt-1 flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface-2 px-4 text-sm font-medium text-text-primary transition-colors hover:bg-surface"
+          >
+            Ver los {totalMovimientos} gastos del cupo
+            <ArrowRight aria-hidden="true" className="size-4" />
+          </Link>
+        ) : null}
+      </section>
     </div>
   );
 }

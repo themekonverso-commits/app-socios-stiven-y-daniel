@@ -120,14 +120,25 @@ export type Cierre = {
   created_at: string | null;
 };
 
+/** Un anticipo que consume el cupo de la tarjeta (R6), para la lista del cuadro. */
+export type MovimientoCupo = {
+  id: string;
+  fecha: string;
+  concepto: string;
+  total_eur: number;
+  categoria: string;
+};
+
 export type LimiteAportacion = {
   socio_id: string | null;
   importe: number;
   /**
-   * Ámbito del cupo. Los 3.000 € son el tope de una tarjeta destinada solo a
-   * publicidad: un anticipo de otra categoría se reembolsa igual, pero no
-   * consume cupo. A null, el cupo cuenta todos los anticipos.
+   * Ámbito del cupo. Los 3.000 € son el tope de la tarjeta con la que se paga
+   * la publicidad, el producto y su envío (0016): un anticipo de otra
+   * categoría se reembolsa igual, pero no consume cupo. Vacío = el cupo
+   * cuenta todos los anticipos.
    */
-  categoria_id: string | null;
-  categoria_nombre: string | null;
+  categorias: { id: string; nombre: string }[];
+  /** Las categorías en una frase: «publicidad, coste de producto y envíos y logística». Null sin ámbito. */
+  ambito: string | null;
 };

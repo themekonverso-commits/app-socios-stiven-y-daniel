@@ -721,25 +721,32 @@ interfaz**.
 | R3.2 | Si no hay fondos, reembolso a prorrata sin preferencias | `fn_prorrata_calculo` |
 | R4 | Nadie cobra con anticipos pendientes o pérdidas | `puede_repartir` |
 | R5 | Fase Inicial: 3 meses al 100 % de reinversión | `fn_en_fase_inicial` |
-| R6 | Cupo de aportación de 3.000 € **para publicidad** y reunión de continuidad | `ajustes.limite_aportacion` + `vw_anticipos_socio` |
+| R6 | Cupo de aportación de 3.000 € **de la tarjeta (publicidad, producto y envíos)** y reunión de continuidad | `ajustes.limite_aportacion` + `vw_anticipos_socio` |
 | R7 | Liquidación final por mitades del neto | `fn_liquidacion_calculo` |
 
-### El cupo de la R6 tiene ámbito: solo publicidad
+### El cupo de la R6 tiene ámbito: publicidad, producto y envíos
 
-Los 3.000 € no son «lo máximo que un socio puede adelantar». Son el cupo de una
-**tarjeta de crédito destinada en exclusiva a inversión publicitaria**. Si
-Daniel adelanta su mitad de Shopify o de Klaviyo, ese gasto **no consume
-tarjeta**, aunque se le deba exactamente igual.
+Los 3.000 € no son «lo máximo que un socio puede adelantar». Son el cupo de la
+**tarjeta de crédito con la que se pagan la publicidad, el producto (CJ, el
+proveedor) y su envío**. Si Daniel adelanta su mitad de Shopify o de Klaviyo,
+ese gasto **no consume tarjeta**, aunque se le deba exactamente igual.
 
-El ámbito vive en el propio ajuste (migración `0011`):
+El ámbito vive en el propio ajuste. La `0011` lo limitó a Publicidad; la `0016`
+lo amplió a una lista de categorías:
 
 ```json
-{"socio_id": "…", "importe": 3000, "categoria_id": "<id de Publicidad>"}
+{"socio_id": "…", "importe": 3000,
+ "categoria_ids": ["<Publicidad>", "<Coste de producto>", "<Envíos y logística>"]}
 ```
 
-El id de la categoría lo resuelve la migración por nombre, no está escrito a
-mano: en cada base de datos es otro. Si `categoria_id` es `null`, el cupo vuelve
-a contar todos los anticipos, que es como se comportaba antes.
+Los ids los resuelve la migración por nombre, no están escritos a mano: en cada
+base de datos son otros. `fn_categorias_limite()` lee la lista; si no hay, acepta
+el `categoria_id` antiguo de la 0011, y sin ninguno de los dos el cupo vuelve a
+contar todos los anticipos.
+
+Ojo con cómo se clasifica cada gasto: solo cuenta en el cupo si está en una de
+esas tres categorías. Un cargo de Meta registrado como «Herramientas de IA y
+software» no consume tarjeta.
 
 `vw_anticipos_socio` devuelve tres cifras por socio:
 
@@ -759,9 +766,11 @@ Por eso la pantalla lo dice con todas las letras: bajo la barra aparece
 consumen el cupo.» Quien lea solo la barra no puede acabar creyendo que ese
 dinero se ha perdido.
 
-Casos 12 y 13 de `supabase/tests/liquidacion.sql`: 800 € de anuncios más 200 €
-de una herramienta dan cupo 800 y pendiente 1.000; y con el ámbito a `null` el
-cupo vuelve a sumarlo todo. El caso 12 mide **por diferencia** porque los casos
+Casos 12, 13 y 14 de `supabase/tests/liquidacion.sql`: 800 € de anuncios más
+200 € de una herramienta dan cupo 800 y pendiente 1.000; sin ámbito el cupo
+vuelve a sumarlo todo; y con el ámbito de la 0016, 100 € de anuncios + 60 € de
+producto + 15 € de envío entran en el cupo (175) mientras una herramienta de
+40 € queda fuera. El caso 12 mide **por diferencia** porque los casos
 10 y 11 ya dejan anticipos del mismo socio dentro de la transacción.
 
 ### Por qué el cálculo está partido en dos capas

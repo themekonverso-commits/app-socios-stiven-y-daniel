@@ -18,9 +18,12 @@ import {
   obtenerHistorialReembolsos,
   obtenerLimiteAportacion,
   obtenerLiquidacionFinal,
+  obtenerMovimientosCupo,
   obtenerResumenSocios,
 } from "@/lib/consultas-liquidacion";
-import { leerPeriodo, type Periodo } from "@/lib/periodo";
+import { escribirFiltros } from "@/lib/esquemas/filtros";
+import { hoyEnEspana, leerPeriodo, type Periodo } from "@/lib/periodo";
+import { format } from "date-fns";
 
 export const metadata = { title: "Liquidación" };
 export const revalidate = 60;
@@ -89,6 +92,24 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
 
   const hayLimite = limite.importe > 0 && socioLimite !== undefined;
 
+  // Lo que ha ido consumiendo la tarjeta, con enlace al listado completo ya
+  // filtrado: ese socio, las categorías del cupo y desde el primer gasto.
+  const categoriaIds = limite.categorias.map((c) => c.id);
+  const cupo =
+    hayLimite && socioLimite
+      ? await obtenerMovimientosCupo(socioLimite.socio_id, categoriaIds, 5)
+      : null;
+  const enlaceCupo =
+    cupo && socioLimite && cupo.desde
+      ? `/movimientos?${escribirFiltros({
+          preset: "personalizado",
+          desde: cupo.desde,
+          hasta: format(hoyEnEspana(), "yyyy-MM-dd"),
+          categorias: categoriaIds,
+          anticipado: socioLimite.socio_id,
+        })}`
+      : null;
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <TarjetaBloque
@@ -107,7 +128,7 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
                 <TarjetaSocio
                   key={socio.socio_id}
                   socio={socio}
-                  ambito={limite.categoria_nombre}
+                  ambito={limite.ambito}
                 />
               ))}
             </div>
@@ -121,8 +142,8 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
         <TarjetaBloque
           titulo="Límite de aportación"
           descripcion={
-            limite.categoria_nombre
-              ? `Regla 6 del contrato. El cupo es solo para ${limite.categoria_nombre.toLowerCase()}.`
+            limite.ambito
+              ? `Regla 6 del contrato. La tarjeta cubre ${limite.ambito}.`
               : "Regla 6 del contrato."
           }
         >
@@ -130,7 +151,10 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
             socio={socioLimite}
             limite={limite.importe}
             avisoPct={avisoPct}
-            ambito={limite.categoria_nombre}
+            ambito={limite.ambito}
+            movimientos={cupo?.movimientos ?? []}
+            totalMovimientos={cupo?.total ?? 0}
+            enlaceMovimientos={enlaceCupo}
           />
         </TarjetaBloque>
       ) : null}

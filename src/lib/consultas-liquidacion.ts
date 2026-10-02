@@ -8,6 +8,7 @@ import type {
   LimiteAportacion,
   LiquidacionFinal,
   ReembolsoHistorial,
+  MovimientoCupo,
   ResumenSocio,
 } from "@/lib/tipos-liquidacion";
 
@@ -161,6 +162,13 @@ export async function obtenerCierre(id: string): Promise<Cierre | null> {
   return data as unknown as Cierre;
 }
 
+/** «a», «a y b», «a, b y c». Null si no hay nada. */
+function enumerar(elementos: string[]): string | null {
+  if (elementos.length === 0) return null;
+  if (elementos.length === 1) return elementos[0]!;
+  return `${elementos.slice(0, -1).join(", ")} y ${elementos.at(-1)}`;
+}
+
 /** R6 — límite de aportación acordado y umbral de aviso. */
 export async function obtenerLimiteAportacion(): Promise<{
   limite: LimiteAportacion;
@@ -176,28 +184,88 @@ export async function obtenerLimiteAportacion(): Promise<{
   const limite = (porClave.get("limite_aportacion") ?? {}) as Record<string, unknown>;
   const aviso = (porClave.get("aviso_limite_pct") ?? {}) as Record<string, unknown>;
 
-  const categoriaId = (limite.categoria_id as string) ?? null;
+  // Desde la 0016 el ámbito es una lista; se acepta también el categoria_id
+  // de la 0011, igual que hace fn_categorias_limite() en la base de datos.
+  const ids: string[] = Array.isArray(limite.categoria_ids)
+    ? (limite.categoria_ids as string[])
+    : limite.categoria_id
+      ? [limite.categoria_id as string]
+      : [];
 
-  // El nombre solo sirve para el texto de la pantalla. Quien decide qué entra
-  // en el cupo es la vista, con el id: aquí no se filtra nada.
-  let categoriaNombre: string | null = null;
-  if (categoriaId) {
-    const { data: categoria } = await supabase
+  // Los nombres solo sirven para el texto de la pantalla. Quien decide qué
+  // entra en el cupo es la vista, con los ids: aquí no se filtra nada.
+  let categorias: { id: string; nombre: string }[] = [];
+  if (ids.length > 0) {
+    const { data: filas } = await supabase
       .from("categorias")
-      .select("nombre")
-      .eq("id", categoriaId)
-      .maybeSingle();
-    categoriaNombre = categoria?.nombre ?? null;
+      .select("id, nombre")
+      .in("id", ids);
+    const porId = new Map((filas ?? []).map((c) => [c.id, c.nombre]));
+    categorias = ids
+      .filter((id) => porId.has(id))
+      .map((id) => ({ id, nombre: porId.get(id)! }));
   }
 
   return {
     limite: {
       socio_id: (limite.socio_id as string) ?? null,
       importe: n(limite.importe),
-      categoria_id: categoriaId,
-      categoria_nombre: categoriaNombre,
+      categorias,
+      ambito: enumerar(categorias.map((c) => c.nombre.toLowerCase())),
     },
     avisoPct: n(aviso.porcentaje) || 80,
+  };
+}
+
+/**
+ * R6 — los últimos anticipos que consumen el cupo de la tarjeta de un socio.
+ *
+ * Mismo criterio que `anticipado_cupo` en la vista: gastos que adelantó ese
+ * socio en alguna de las categorías del cupo. Sin categorías, todos sus
+ * anticipos. Devuelve también el total y la fecha del más antiguo, para que el
+ * enlace a /movimientos abarque el histórico completo y no solo el mes.
+ */
+export async function obtenerMovimientosCupo(
+  socioId: string,
+  categoriaIds: string[],
+  limite = 5,
+): Promise<{ movimientos: MovimientoCupo[]; total: number; desde: string | null }> {
+  const supabase = await crearClienteServidor();
+
+  let consulta = supabase
+    .from("movimientos")
+    .select("id, fecha, concepto, total_eur, categoria:categoria_id ( nombre )", {
+      count: "exact",
+    })
+    .eq("tipo", "gasto")
+    .eq("anticipado_por", socioId);
+  if (categoriaIds.length > 0) consulta = consulta.in("categoria_id", categoriaIds);
+
+  let primera = supabase
+    .from("movimientos")
+    .select("fecha")
+    .eq("tipo", "gasto")
+    .eq("anticipado_por", socioId);
+  if (categoriaIds.length > 0) primera = primera.in("categoria_id", categoriaIds);
+
+  const [{ data, count }, { data: masAntiguo }] = await Promise.all([
+    consulta
+      .order("fecha", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(limite),
+    primera.order("fecha", { ascending: true }).limit(1).maybeSingle(),
+  ]);
+
+  return {
+    movimientos: (data ?? []).map((fila) => ({
+      id: fila.id,
+      fecha: fila.fecha,
+      concepto: fila.concepto,
+      total_eur: n(fila.total_eur),
+      categoria: (fila.categoria as { nombre?: string } | null)?.nombre ?? "—",
+    })),
+    total: count ?? 0,
+    desde: masAntiguo?.fecha ?? null,
   };
 }
 

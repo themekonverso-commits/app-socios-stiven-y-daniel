@@ -195,11 +195,11 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     });
   }
 
-  // R6: el cupo mide SOLO lo que consume la tarjeta (publicidad). Los
-  // anticipos de otras categorías se reembolsan igual y no deben disparar
-  // esta alerta.
+  // R6: el cupo mide SOLO lo que consume la tarjeta (publicidad, producto y
+  // envíos). Los anticipos de otras categorías se reembolsan igual y no deben
+  // disparar esta alerta.
   if (limite.importe > 0) {
-    const ambito = limite.categoria_nombre?.toLowerCase();
+    const ambito = limite.ambito;
     for (const socio of socios) {
       const pct = porcentaje(socio.anticipado_cupo, limite.importe);
       if (pct !== null && pct >= avisoPct) {

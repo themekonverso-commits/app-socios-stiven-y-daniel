@@ -17,7 +17,7 @@ export function TarjetaSocio({
   ambito,
 }: {
   socio: ResumenSocio;
-  /** Categoría del cupo. Sin ella no hay desglose que enseñar. */
+  /** Categorías del cupo en una frase. Sin ellas no hay desglose que enseñar. */
   ambito?: string | null;
 }) {
   const color = socio.color ?? "#6E6E73";
@@ -57,7 +57,9 @@ export function TarjetaSocio({
         {hayDesglose ? (
           <div className="flex flex-col gap-1 border-l-2 border-border pl-3 text-xs">
             <div className="flex items-baseline justify-between gap-3">
-              <dt className="text-text-muted">{ambito}</dt>
+              <dt className="text-text-muted" title={ambito ?? undefined}>
+                En el cupo de la tarjeta
+              </dt>
               <dd className="cifra text-text-secondary">
                 {formatearEuros(socio.anticipado_cupo)}
               </dd>
