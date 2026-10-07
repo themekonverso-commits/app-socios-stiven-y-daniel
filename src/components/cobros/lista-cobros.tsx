@@ -26,7 +26,8 @@ import { formatearEuros, formatearFecha, formatearPorcentaje } from "@/lib/forma
 import { cn } from "@/lib/utils";
 
 /**
- * Cobros del periodo con su conciliación contra /diario.
+ * Cobros del periodo con su conciliación contra las ventas de /diario de su
+ * mismo método de cobro.
  *
  * El descuadre se escribe entero en la fila, no solo con un icono: «faltan
  * 15,00 €» es lo que hay que ir a corregir, y el color nunca es el único
@@ -59,7 +60,7 @@ export function ListaCobros({
       <div className="overflow-hidden rounded-xl border border-border">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[880px] border-collapse text-sm">
-            <caption className="sr-only">Cobros de la pasarela del periodo</caption>
+            <caption className="sr-only">Cobros de Shopify Payments y PayPal del periodo</caption>
             <thead>
               <tr className="border-b border-border bg-surface text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
                 <th scope="col" className="px-4 py-3">Llegó</th>
@@ -123,6 +124,21 @@ export function ListaCobros({
                         : formatearPorcentaje(cobro.pct_comision, 2)}
                     </td>
                     <td className="px-4 py-3">
+                      {cobro.solapados.length > 0 ? (
+                        <span className="mb-1.5 flex max-w-72 items-start gap-1.5 text-warning">
+                          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                          <span>
+                            <span className="font-medium">Posible duplicado</span>
+                            <span className="block text-xs text-text-secondary">
+                              Se solapa con{" "}
+                              {cobro.solapados
+                                .map((o) => `el cobro ${cobro.plataforma === "PayPal" ? "de PayPal" : "de Shopify"} del ${formatearFecha(o.fecha_cobro)}`)
+                                .join(" y ")}
+                              .
+                            </span>
+                          </span>
+                        </span>
+                      ) : null}
                       {c.cuadra ? (
                         <span className="inline-flex items-center gap-1.5 text-success">
                           <CircleCheck aria-hidden="true" className="size-4" />

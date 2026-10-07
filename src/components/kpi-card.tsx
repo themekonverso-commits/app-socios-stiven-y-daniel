@@ -30,6 +30,11 @@ export type KpiCardProps = {
   /** Nota bajo el valor: umbral alcanzado, aclaración… */
   nota?: string;
   enlace?: { href: string; texto: string };
+  /**
+   * Líneas bajo el valor, cuando la cifra grande es una suma: «Banco 120 € ·
+   * PayPal 30 €». `apagado` las pinta en gris (un dato aparte, no un sumando).
+   */
+  desglose?: { etiqueta: string; valor: string; apagado?: boolean }[];
   icono?: LucideIcon;
   /** Solo UNA por pantalla, y siempre la primera del grid. */
   destacada?: boolean;
@@ -46,6 +51,7 @@ export function KpiCard({
   claseValor,
   nota,
   enlace,
+  desglose,
   icono: Icono,
   destacada = false,
   className,
@@ -134,6 +140,35 @@ export function KpiCard({
         >
           {nota}
         </p>
+      ) : null}
+
+      {desglose && desglose.length > 0 ? (
+        <dl
+          className={cn(
+            "mt-3 flex flex-col gap-1 border-t pt-2.5 text-xs",
+            destacada ? "border-white/25" : "border-border",
+          )}
+        >
+          {desglose.map((linea) => (
+            <div key={linea.etiqueta} className="flex items-baseline justify-between gap-3">
+              <dt
+                className={cn(
+                  destacada ? "text-white/90" : linea.apagado ? "text-text-muted" : "text-text-secondary",
+                )}
+              >
+                {linea.etiqueta}
+              </dt>
+              <dd
+                className={cn(
+                  "cifra font-medium",
+                  destacada ? "text-white" : linea.apagado ? "text-text-secondary" : "text-text-primary",
+                )}
+              >
+                {linea.valor}
+              </dd>
+            </div>
+          ))}
+        </dl>
       ) : null}
 
       {variacion !== undefined ? (

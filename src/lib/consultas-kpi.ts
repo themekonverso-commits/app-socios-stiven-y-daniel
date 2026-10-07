@@ -94,55 +94,62 @@ export async function obtenerResumenComparado(periodo: Periodo): Promise<{
 }
 
 /**
- * Caja del negocio, partida en dos (migración 0015).
+ * Tesorería del negocio (migración 0017): dos cuentas y lo pendiente.
  *
- * El saldo en banco solo cuenta lo que de verdad ha entrado o salido de la
- * cuenta: los netos que ha pagado Shopify, los gastos pagados por el negocio y
- * los reembolsos a socios. Las ventas que Shopify aún no ha pagado van aparte,
- * como pendiente; y lo que un socio adelantó de su bolsillo no toca el banco.
+ *   · Banco: los netos que paga Shopify Payments y los traspasos desde
+ *     PayPal, menos los gastos y reembolsos pagados desde el banco.
+ *   · PayPal: los netos de los cobros de PayPal, menos los traspasos al banco
+ *     y los gastos y reembolsos pagados desde PayPal.
+ *   · Pendiente de cobro: ventas de /diario que ningún cobro de su método
+ *     cubre todavía.
+ *
+ * Lo que un socio adelantó de su bolsillo no sale de ninguna de las dos.
  */
-export type SaldoCaja = {
-  saldoInicial: number;
-  fechaInicial: string | null;
-  cobradoNeto: number;
-  gastosNegocio: number;
-  reembolsos: number;
+export type Tesoreria = {
+  saldoInicialBanco: number;
+  fechaInicialBanco: string | null;
+  saldoInicialPaypal: number;
+  fechaInicialPaypal: string | null;
   saldoBanco: number;
-  ventas: number;
-  cobradoBruto: number;
+  saldoPaypal: number;
+  cajaTotal: number;
   pendienteShopify: number;
+  pendientePaypal: number;
+  pendienteTotal: number;
 };
 
-/** Saldo en banco hoy. No depende del selector de periodo. */
-export async function obtenerSaldoCaja(): Promise<SaldoCaja> {
-  const supabase = await crearClienteServidor();
-  const { data, error } = await supabase.rpc("fn_saldo_banco");
+const TESORERIA_VACIA: Tesoreria = {
+  saldoInicialBanco: 0,
+  fechaInicialBanco: null,
+  saldoInicialPaypal: 0,
+  fechaInicialPaypal: null,
+  saldoBanco: 0,
+  saldoPaypal: 0,
+  cajaTotal: 0,
+  pendienteShopify: 0,
+  pendientePaypal: 0,
+  pendienteTotal: 0,
+};
 
-  if (error || !data || data.length === 0) {
-    return {
-      saldoInicial: 0,
-      fechaInicial: null,
-      cobradoNeto: 0,
-      gastosNegocio: 0,
-      reembolsos: 0,
-      saldoBanco: 0,
-      ventas: 0,
-      cobradoBruto: 0,
-      pendienteShopify: 0,
-    };
-  }
+/** Tesorería a día de hoy. No depende del selector de periodo. */
+export async function obtenerTesoreria(): Promise<Tesoreria> {
+  const supabase = await crearClienteServidor();
+  const { data, error } = await supabase.rpc("fn_tesoreria");
+
+  if (error || !data || data.length === 0) return TESORERIA_VACIA;
 
   const fila = data[0]!;
   return {
-    saldoInicial: n(fila.saldo_inicial),
-    fechaInicial: fila.fecha_inicial ?? null,
-    cobradoNeto: n(fila.cobrado_neto),
-    gastosNegocio: n(fila.gastos_negocio),
-    reembolsos: n(fila.reembolsos),
+    saldoInicialBanco: n(fila.saldo_inicial_banco),
+    fechaInicialBanco: fila.fecha_inicial_banco ?? null,
+    saldoInicialPaypal: n(fila.saldo_inicial_paypal),
+    fechaInicialPaypal: fila.fecha_inicial_paypal ?? null,
     saldoBanco: n(fila.saldo_banco),
-    ventas: n(fila.ventas),
-    cobradoBruto: n(fila.cobrado_bruto),
+    saldoPaypal: n(fila.saldo_paypal),
+    cajaTotal: n(fila.caja_total),
     pendienteShopify: n(fila.pendiente_shopify),
+    pendientePaypal: n(fila.pendiente_paypal),
+    pendienteTotal: n(fila.pendiente_total),
   };
 }
 
@@ -375,6 +382,7 @@ export type SaldoInicial = { importe: number; fecha: string };
 
 export async function obtenerAjustes(): Promise<{
   saldoInicial: SaldoInicial;
+  saldoInicialPaypal: SaldoInicial;
   objetivos: Objetivos;
 }> {
   const supabase = await crearClienteServidor();
@@ -384,6 +392,7 @@ export async function obtenerAjustes(): Promise<{
 
   const saldo = (porClave.get("saldo_inicial") ?? {}) as Record<string, unknown>;
   const objetivo = (porClave.get("objetivo_mes") ?? {}) as Record<string, unknown>;
+  const paypal = (porClave.get("saldo_inicial_paypal") ?? {}) as Record<string, unknown>;
 
   return {
     saldoInicial: {
@@ -392,6 +401,16 @@ export async function obtenerAjustes(): Promise<{
         typeof saldo.fecha === "string"
           ? saldo.fecha
           : new Date().toISOString().slice(0, 10),
+    },
+    saldoInicialPaypal: {
+      importe: n(paypal.importe),
+      // Sin fila propia, PayPal arranca el mismo día que el banco.
+      fecha:
+        typeof paypal.fecha === "string"
+          ? paypal.fecha
+          : typeof saldo.fecha === "string"
+            ? saldo.fecha
+            : new Date().toISOString().slice(0, 10),
     },
     objetivos: {
       facturacion: n(objetivo.facturacion),

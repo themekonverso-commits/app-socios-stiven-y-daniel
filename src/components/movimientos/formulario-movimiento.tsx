@@ -15,6 +15,7 @@ import { SelectorSegmentado } from "@/components/campos/selector-segmentado";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { CUENTAS_PAGO, ETIQUETA_CUENTA, type CuentaPago } from "@/lib/metodos-cobro";
 import { calcularDesdeBase, calcularDesdeTotal, convertirAEuros } from "@/lib/dinero";
 import { formatearEuros, formatearNumero } from "@/lib/formato";
 import { PLATAFORMAS, TIPOS_IVA } from "@/lib/esquemas/movimiento";
@@ -47,6 +48,8 @@ type EstadoFormulario = {
   iva_importe: number;
   total: number | null;
   anticipado_por: string | null;
+  /** Gasto pagado por el negocio: de qué cuenta salió. Excluye anticipado_por. */
+  cuenta_pago: CuentaPago | null;
   plataforma: Plataforma | null;
   impresiones: number | null;
   clicks: number | null;
@@ -78,6 +81,9 @@ function estadoInicial(
       iva_importe: Number(movimiento.iva_importe),
       total: Number(movimiento.total),
       anticipado_por: movimiento.anticipado_por,
+      cuenta_pago: movimiento.anticipado_por
+        ? null
+        : ((movimiento.cuenta_pago as CuentaPago | null) ?? null),
       plataforma: (movimiento.plataforma as Plataforma | null) ?? null,
       impresiones: movimiento.impresiones,
       clicks: movimiento.clicks,
@@ -97,6 +103,7 @@ function estadoInicial(
     iva_importe: 0,
     total: null,
     anticipado_por: usuarioId,
+    cuenta_pago: null,
     plataforma: null,
     impresiones: null,
     clicks: null,
@@ -247,6 +254,7 @@ export function FormularioMovimiento({
       iva_importe: datos.iva_importe,
       total: datos.total ?? 0,
       anticipado_por: esGasto ? datos.anticipado_por : null,
+      cuenta_pago: esGasto && !datos.anticipado_por ? datos.cuenta_pago : null,
       plataforma: esPublicidad ? datos.plataforma : null,
       impresiones: esPublicidad ? datos.impresiones : null,
       clicks: esPublicidad ? datos.clicks : null,
@@ -266,8 +274,8 @@ export function FormularioMovimiento({
     if (datos.divisa === "USD" && (!datos.tasa_cambio || datos.tasa_cambio <= 0)) {
       nuevos.tasa_cambio = "Indica la tasa de cambio.";
     }
-    if (esGasto && !datos.anticipado_por) {
-      nuevos.anticipado_por = "Indica quién adelantó el dinero.";
+    if (esGasto && !datos.anticipado_por && !datos.cuenta_pago) {
+      nuevos.anticipado_por = "Indica quién pagó: un socio, el banco o PayPal.";
     }
 
     setErrores(nuevos);
@@ -614,23 +622,49 @@ export function FormularioMovimiento({
           ) : null}
         </div>
 
-        {/* 8 · ANTICIPADO POR (solo gastos) */}
+        {/* 8 · PAGADO POR (solo gastos): un socio de su bolsillo, o el
+               negocio desde el banco o desde PayPal (0017). */}
         {esGasto ? (
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-text-primary">
-              Anticipado por
+              Pagado por
             </span>
             <SelectorSegmentado
               nombre="anticipado"
-              etiquetaGrupo="Socio que adelantó el dinero"
-              valor={datos.anticipado_por ?? ""}
-              opciones={socios.map((socio) => ({
-                valor: socio.id,
-                etiqueta: socio.nombre,
-                color: socio.color,
-              }))}
-              alCambiar={(valor) => actualizar({ anticipado_por: valor })}
+              etiquetaGrupo="Quién pagó el gasto"
+              valor={
+                datos.anticipado_por ??
+                (datos.cuenta_pago ? `cuenta:${datos.cuenta_pago}` : "")
+              }
+              opciones={[
+                ...socios.map((socio) => ({
+                  valor: socio.id,
+                  etiqueta: socio.nombre,
+                  color: socio.color,
+                })),
+                ...CUENTAS_PAGO.map((cuenta) => ({
+                  valor: `cuenta:${cuenta}`,
+                  etiqueta: ETIQUETA_CUENTA[cuenta],
+                })),
+              ]}
+              alCambiar={(valor) => {
+                if (valor.startsWith("cuenta:")) {
+                  actualizar({
+                    anticipado_por: null,
+                    cuenta_pago: valor.slice("cuenta:".length) as CuentaPago,
+                  });
+                } else {
+                  actualizar({ anticipado_por: valor, cuenta_pago: null });
+                }
+              }}
             />
+            <p className="text-xs text-text-muted">
+              {datos.anticipado_por
+                ? "Lo adelantó un socio de su bolsillo: se le debe y cuenta en la liquidación."
+                : datos.cuenta_pago
+                  ? `Lo pagó el negocio: resta del saldo de ${ETIQUETA_CUENTA[datos.cuenta_pago]}.`
+                  : "Un socio de su bolsillo, o el negocio desde el banco o desde PayPal."}
+            </p>
             {errores.anticipado_por ? (
               <p role="alert" className="text-xs text-danger">
                 {errores.anticipado_por}

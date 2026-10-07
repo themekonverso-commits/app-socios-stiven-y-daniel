@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+import { PLATAFORMAS_COBRO } from "@/lib/metodos-cobro";
+
 /**
- * Validación de un cobro de la pasarela (payout de Shopify).
+ * Validación de un cobro de la pasarela: payout de Shopify Payments o cobro
+ * de PayPal.
  *
  * La importa el formulario y el Server Action. El neto NO viaja: lo calcula el
  * servidor con `calcularNeto`, y la base de datos vuelve a comprobarlo con un
@@ -16,17 +19,15 @@ export const esquemaCobro = z
     fecha_cobro: FECHA,
     periodo_desde: FECHA,
     periodo_hasta: FECHA,
-    plataforma: z
-      .string()
-      .trim()
-      .min(1, "Indica la plataforma.")
-      .max(60, "El nombre de la plataforma es demasiado largo."),
+    plataforma: z.enum(PLATAFORMAS_COBRO, { error: "Elige Shopify Payments o PayPal." }),
     importe_bruto: IMPORTE.min(0, "El bruto no puede ser negativo."),
     comisiones: IMPORTE.min(0, "Las comisiones no pueden ser negativas."),
     devoluciones: IMPORTE.min(0, "Las devoluciones no pueden ser negativas."),
     otros_ajustes: IMPORTE.min(-9_999_999),
     referencia: z.string().trim().max(80).nullable().optional(),
     notas: z.string().trim().max(1000).nullable().optional(),
+    /** Ya se avisó de que se solapa con otro cobro de la misma plataforma. */
+    confirmar_solape: z.boolean().optional(),
   })
   .refine((d) => d.periodo_desde <= d.periodo_hasta, {
     message: "El periodo termina antes de empezar.",
@@ -38,3 +39,22 @@ export const esquemaCobro = z
   });
 
 export type DatosCobro = z.infer<typeof esquemaCobro>;
+
+/**
+ * Traspaso de PayPal al banco. No es ingreso ni gasto: solo mueve saldo. Si
+ * PayPal cobra comisión, esa parte sí es gasto (lo genera la base de datos).
+ */
+export const esquemaTraspaso = z
+  .object({
+    fecha: FECHA,
+    importe: IMPORTE.gt(0, "Escribe el importe que sale de PayPal."),
+    comision: IMPORTE.min(0, "La comisión no puede ser negativa."),
+    referencia: z.string().trim().max(80).nullable().optional(),
+    notas: z.string().trim().max(1000).nullable().optional(),
+  })
+  .refine((d) => d.comision < d.importe, {
+    message: "La comisión no puede ser igual o mayor que el traspaso.",
+    path: ["comision"],
+  });
+
+export type DatosTraspaso = z.infer<typeof esquemaTraspaso>;

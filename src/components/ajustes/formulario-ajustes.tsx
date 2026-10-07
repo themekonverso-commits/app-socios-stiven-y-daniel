@@ -12,15 +12,23 @@ import type { Objetivos, SaldoInicial } from "@/lib/consultas-kpi";
 
 export function FormularioAjustes({
   saldoInicial,
+  saldoInicialPaypal,
   objetivos,
   saldoActual,
+  saldoPaypalActual,
 }: {
   saldoInicial: SaldoInicial;
+  saldoInicialPaypal: SaldoInicial;
   objetivos: Objetivos;
   saldoActual: number;
+  saldoPaypalActual: number;
 }) {
   const [importe, setImporte] = useState<number | null>(saldoInicial.importe);
   const [fecha, setFecha] = useState(saldoInicial.fecha);
+  const [importePaypal, setImportePaypal] = useState<number | null>(
+    saldoInicialPaypal.importe,
+  );
+  const [fechaPaypal, setFechaPaypal] = useState(saldoInicialPaypal.fecha);
   const [facturacion, setFacturacion] = useState<number | null>(objetivos.facturacion);
   const [beneficio, setBeneficio] = useState<number | null>(objetivos.beneficio);
   const [guardando, iniciarGuardado] = useTransition();
@@ -32,6 +40,8 @@ export function FormularioAjustes({
       const resultado = await guardarAjustes({
         saldo_importe: importe ?? 0,
         saldo_fecha: fecha,
+        paypal_importe: importePaypal ?? 0,
+        paypal_fecha: fechaPaypal,
         objetivo_facturacion: facturacion ?? 0,
         objetivo_beneficio: beneficio ?? 0,
       });
@@ -50,8 +60,9 @@ export function FormularioAjustes({
         <h2 className="text-base font-semibold text-text-primary">Saldo en banco</h2>
         <p className="mt-0.5 text-xs text-text-secondary">
           La aplicación no ve tu banco. Dile cuánto había en un día concreto y a
-          partir de ahí suma lo que ha pagado Shopify (/cobros) y resta los
-          gastos pagados por el negocio y los reembolsos a socios.
+          partir de ahí suma lo que ha pagado Shopify Payments (/cobros) y los
+          traspasos desde PayPal, y resta los gastos y reembolsos pagados desde
+          el banco.
         </p>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -79,6 +90,43 @@ export function FormularioAjustes({
           Saldo en banco hoy con los datos actuales:{" "}
           <span className="font-semibold text-text-primary">
             {formatearEuros(saldoActual)}
+          </span>
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-border bg-surface p-4 sm:p-5">
+        <h2 className="text-base font-semibold text-text-primary">Saldo en PayPal</h2>
+        <p className="mt-0.5 text-xs text-text-secondary">
+          Igual que el del banco, para la cuenta de PayPal. A partir de esa fecha
+          suma los cobros de PayPal (/cobros) y resta los traspasos al banco y los
+          gastos y reembolsos pagados desde PayPal.
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="paypal-importe" className="text-sm font-medium text-text-primary">
+              Saldo inicial
+            </label>
+            <CampoImporte
+              id="paypal-importe"
+              valor={importePaypal}
+              alCambiar={setImportePaypal}
+              sufijo="€"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="paypal-fecha" className="text-sm font-medium text-text-primary">
+              A fecha de
+            </label>
+            <SelectorFecha id="paypal-fecha" valor={fechaPaypal} alCambiar={setFechaPaypal} />
+          </div>
+        </div>
+
+        <p className="cifra mt-4 rounded-lg border border-border bg-base px-3 py-2 text-sm text-text-secondary">
+          Saldo en PayPal hoy con los datos actuales:{" "}
+          <span className="font-semibold text-text-primary">
+            {formatearEuros(saldoPaypalActual)}
           </span>
         </p>
       </section>

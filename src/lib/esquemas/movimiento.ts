@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CUENTAS_PAGO } from "@/lib/metodos-cobro";
+
 /**
  * Esquemas de validación de movimientos.
  *
@@ -63,6 +65,12 @@ export const esquemaMovimiento = z
 
     anticipado_por: z.uuid().nullable(),
 
+    /**
+     * Solo en gastos pagados por el negocio (sin anticipo): de qué cuenta
+     * sale el dinero. La base de datos lo deja en NULL si hay anticipo.
+     */
+    cuenta_pago: z.enum(CUENTAS_PAGO).nullable().optional(),
+
     num_pedidos: z.number().int().min(0).nullable().optional(),
     plataforma: z.enum(PLATAFORMAS).nullable().optional(),
     impresiones: z.number().int().min(0).nullable().optional(),
@@ -81,8 +89,12 @@ export const esquemaMovimiento = z
   )
   .refine(
     // En gastos hay que saber quién puso el dinero: de eso vive la liquidación.
-    (datos) => datos.tipo === "ingreso" || Boolean(datos.anticipado_por),
-    { message: "Indica quién adelantó el dinero.", path: ["anticipado_por"] },
+    // O un socio de su bolsillo, o el negocio desde el banco o desde PayPal.
+    (datos) =>
+      datos.tipo === "ingreso" ||
+      Boolean(datos.anticipado_por) ||
+      Boolean(datos.cuenta_pago),
+    { message: "Indica quién pagó: un socio, el banco o PayPal.", path: ["anticipado_por"] },
   )
   .refine(
     (datos) => datos.divisa === "USD" || datos.tasa_cambio === 1,
@@ -91,20 +103,47 @@ export const esquemaMovimiento = z
 
 export type DatosMovimiento = z.infer<typeof esquemaMovimiento>;
 
-/** Registro rápido de las ventas del día. */
-export const esquemaVentaDiaria = z.object({
-  fecha: z.string().regex(FECHA_ISO, "La fecha no es válida."),
-  num_pedidos: z
-    .number({ error: "Escribe el número de pedidos." })
-    .int("Los pedidos son un número entero.")
-    .min(0, "No puede ser negativo.")
-    .max(100_000, "Ese número de pedidos no parece correcto."),
-  ingresos: importePositivo,
-  divisa: z.enum(["EUR", "USD"]),
-  tasa_cambio: z.number().positive().max(1000),
-  /** El usuario ya confirmó que quiere sobrescribir el registro de ese día. */
-  sobrescribir: z.boolean().optional(),
-});
+/**
+ * Registro rápido de las ventas del día, desglosadas por método de cobro.
+ * Cada método con importe genera su propio ingreso; el total del día es la
+ * suma (lo calcula la base de datos al agregar, no se guarda aparte).
+ */
+const importeCero = z
+  .number()
+  .finite("El importe no es un número válido.")
+  .min(0, "No puede ser negativo.")
+  .max(99_999_999, "Ese importe es demasiado grande.");
+
+const pedidos = z
+  .number()
+  .int("Los pedidos son un número entero.")
+  .min(0, "No puede ser negativo.")
+  .max(100_000, "Ese número de pedidos no parece correcto.");
+
+export const esquemaVentaDiaria = z
+  .object({
+    fecha: z.string().regex(FECHA_ISO, "La fecha no es válida."),
+    shopify_importe: importeCero,
+    shopify_pedidos: pedidos,
+    paypal_importe: importeCero,
+    paypal_pedidos: pedidos,
+    divisa: z.enum(["EUR", "USD"]),
+    tasa_cambio: z.number().positive().max(1000),
+    /** El usuario ya confirmó que quiere sobrescribir el registro de ese día. */
+    sobrescribir: z.boolean().optional(),
+  })
+  .refine((d) => d.shopify_importe > 0 || d.paypal_importe > 0, {
+    message: "Escribe las ventas del día de al menos un método de cobro.",
+    path: ["shopify_importe"],
+  })
+  .refine((d) => d.shopify_importe > 0 || d.shopify_pedidos === 0, {
+    message: "Hay pedidos de Shopify Payments sin importe.",
+    path: ["shopify_importe"],
+  })
+  .refine((d) => d.paypal_importe > 0 || d.paypal_pedidos === 0, {
+    message: "Hay pedidos de PayPal sin importe.",
+    path: ["paypal_importe"],
+  });
 
 export type DatosVentaDiaria = z.infer<typeof esquemaVentaDiaria>;
 

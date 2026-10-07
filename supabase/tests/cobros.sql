@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Tests de cobros de la pasarela y saldo en banco (migración 0015)
+-- Tests de cobros de la pasarela y saldo en banco (migración 0015, al día con la 0017)
 --
 -- CÓMO EJECUTARLOS
 --   Pega el archivo entero en el SQL Editor de Supabase y pulsa Run. Devuelve
@@ -359,19 +359,19 @@ declare
   v_anticipo uuid;
 begin
   select * into c from _ctx;
-  select saldo_banco into v_antes from public.fn_saldo_banco(v_corte);
+  select saldo_banco into v_antes from public.fn_tesoreria(v_corte);
 
   perform pg_temp.suplantar(c.socio_a);
   -- 100 € de anuncios que pone el socio B de su bolsillo
   v_anticipo := pg_temp.mov('gasto', '2030-06-01', c.cat_ads, 100, c.socio_a, c.socio_b);
   perform pg_temp.volver();
-  select saldo_banco into v_tras_anticipo from public.fn_saldo_banco(v_corte);
+  select saldo_banco into v_tras_anticipo from public.fn_tesoreria(v_corte);
 
   perform pg_temp.suplantar(c.socio_a);
   -- 50 € que paga el negocio
   perform pg_temp.mov('gasto', '2030-06-02', c.cat_ads, 50, c.socio_a, null);
   perform pg_temp.volver();
-  select saldo_banco into v_tras_negocio from public.fn_saldo_banco(v_corte);
+  select saldo_banco into v_tras_negocio from public.fn_tesoreria(v_corte);
 
   perform pg_temp.suplantar(c.socio_a);
   -- Llega un payout de 300 − 9 = 291 €. Su comisión NO debe restar otra vez.
@@ -385,8 +385,8 @@ begin
   perform pg_temp.volver();
 
   select saldo_banco into v_tras_cobro
-  from public.fn_saldo_banco('2030-06-05');
-  select saldo_banco into v_tras_reemb from public.fn_saldo_banco(v_corte);
+  from public.fn_tesoreria('2030-06-05');
+  select saldo_banco into v_tras_reemb from public.fn_tesoreria(v_corte);
 
   insert into _resultados values (
     9, 'Saldo en banco: anticipo del socio 0 · gasto del negocio −50 · payout +291 (comisión no resta dos veces) · reembolso −100',
@@ -404,7 +404,7 @@ end $$;
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- 10 — Pendiente en Shopify = ventas − brutos cobrados
+-- 10 — Pendiente en Shopify = ventas que ningún cobro de Shopify cubre (0017)
 -- ───────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -415,19 +415,19 @@ declare
   v_cobrado numeric;
 begin
   select * into c from _ctx;
-  select pendiente_shopify into v_antes from public.fn_saldo_banco(v_corte);
+  select pendiente_shopify into v_antes from public.fn_tesoreria(v_corte);
 
   perform pg_temp.suplantar(c.socio_a);
   perform pg_temp.mov('ingreso', '2030-07-01', c.cat_venta, 250, c.socio_a);
   perform pg_temp.volver();
-  select pendiente_shopify into v_venta from public.fn_saldo_banco(v_corte);
+  select pendiente_shopify into v_venta from public.fn_tesoreria(v_corte);
 
   perform pg_temp.suplantar(c.socio_a);
   insert into public.cobros_pasarela (
     fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto)
   values ('2030-07-04', '2030-07-01', '2030-07-01', 250.00, 7.50, 242.50);
   perform pg_temp.volver();
-  select pendiente_shopify into v_cobrado from public.fn_saldo_banco(v_corte);
+  select pendiente_shopify into v_cobrado from public.fn_tesoreria(v_corte);
 
   insert into _resultados values (
     10, 'Pendiente en Shopify: +250 al registrar la venta, −250 al cobrarla',
@@ -469,7 +469,7 @@ end $$;
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- 12 — La liquidación usa el saldo en banco como caja disponible
+-- 12 — La liquidación usa banco + PayPal como caja disponible
 -- ───────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -477,10 +477,10 @@ declare
   v_banco numeric;
 begin
   select (public.fn_estado_liquidacion('2030-12-31') ->> 'caja_disponible')::numeric into v_caja;
-  select saldo_banco into v_banco from public.fn_saldo_banco('2030-12-31');
+  select caja_total into v_banco from public.fn_tesoreria('2030-12-31');
 
   insert into _resultados values (
-    12, 'fn_estado_liquidacion: caja_disponible = saldo en banco',
+    12, 'fn_estado_liquidacion: caja_disponible = banco + PayPal (0017)',
     'iguales', v_caja || ' / ' || v_banco, v_caja = v_banco);
 end $$;
 

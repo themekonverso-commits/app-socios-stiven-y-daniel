@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { CUENTAS_PAGO } from "@/lib/metodos-cobro";
+
 import { crearClienteServidor } from "@/lib/supabase/server";
 import type { Resultado } from "@/app/acciones/movimientos";
 
@@ -42,6 +44,8 @@ const esquemaReembolso = z.object({
     .gt(0, "El importe tiene que ser mayor que cero."),
   metodo: z.enum(["transferencia", "efectivo", "compensación"]).nullable().optional(),
   notas: z.string().trim().max(500).nullable().optional(),
+  /** Cuenta del negocio de la que sale el reembolso (0017). */
+  cuenta: z.enum(CUENTAS_PAGO).optional(),
   lineas: z
     .array(
       z.object({
@@ -75,6 +79,7 @@ export async function registrarReembolso(
     p_metodo: datos.metodo ?? undefined,
     p_notas: datos.notas ?? undefined,
     p_lineas: datos.lineas,
+    p_cuenta: datos.cuenta ?? "banco",
   });
 
   if (error) return { ok: false, error: traducirError(error) };

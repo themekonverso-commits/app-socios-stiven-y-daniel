@@ -1230,7 +1230,7 @@ seguía en Shopify y restaba gastos que había pagado un socio de su bolsillo.
 | Cifra | Cálculo |
 | --- | --- |
 | **Saldo en banco** | saldo inicial + netos cobrados − gastos pagados por el negocio (`anticipado_por` nulo, **sin** los generados por cobros, que ya van restados en el neto) − reembolsos pagados a socios |
-| **Pendiente en Shopify** | ventas registradas − brutos ya cobrados |
+| **Pendiente en Shopify** | ventas registradas − brutos ya cobrados (en la 0017 pasa a ser por cobertura y por método) |
 
 La tarjeta de caja del dashboard muestra el saldo en banco con el pendiente
 como subtítulo, y `fn_estado_liquidacion` usa el saldo en banco como
@@ -1241,9 +1241,8 @@ Dos límites conocidos:
 - Los ingresos que **no** son «Ventas Shopify» (categoría «Otros ingresos») no
   suman al banco ni al pendiente: la fórmula solo cuenta lo que llega por
   cobros. Hoy no hay ninguno.
-- Todas las ventas de /diario se dan por cobrables vía Shopify Payments. Si
-  alguna se cobra por otra vía (PayPal, transferencia), se registra como cobro
-  con esa plataforma para que no quede como pendiente para siempre.
+- Todas las ventas de /diario se daban por cobrables vía Shopify Payments.
+  Desde la 0017 cada venta lleva su método de cobro (ver sección 18).
 
 ### Semáforo
 
@@ -1272,7 +1271,117 @@ Ejecutados contra el remoto: 12/12, y los otros tres archivos siguen en verde
 
 ---
 
-## 18. Notas de mantenimiento
+## 18. Dos métodos de cobro: Shopify Payments y PayPal
+
+Migración **0017**. Shopify Payments y PayPal cobran distinto, y la app los
+mezclaba: comparar un payout de Shopify con el total del día daba descuadres
+falsos, y la caja contaba como banco un dinero que estaba en PayPal.
+
+| | Shopify Payments | PayPal |
+| --- | --- | --- |
+| Dónde llega el dinero | Al **banco** | A la **cuenta de PayPal** |
+| Cuándo | Los miércoles, con las ventas de la semana anterior (lunes a domingo) | El mismo día de la venta |
+| Cómo pasa al banco | Solo | Con un **traspaso** que hacemos nosotros |
+
+### /diario
+
+El formulario tiene dos bloques, **Ventas Shopify Payments** y **Ventas PayPal**
+(importe y nº de pedidos cada uno). El total del día y los pedidos se calculan
+sumando. `fn_registrar_ventas_dia` crea **un ingreso por método**, con la columna
+nueva `movimientos.metodo_cobro` (`shopify_payments` | `paypal`). No se usa
+`plataforma`, que es la red de publicidad.
+
+La facturación, el ticket medio y todos los KPI salen igual que antes: las
+vistas suman por día. Verificado contra el remoto: facturación, pedidos,
+gastos, la serie diaria y la mensual idénticas antes y después de la 0017.
+
+- **Duplicados**: si el día ya tiene ventas, avisa y no toca nada. Al
+  sobrescribir se sustituyen los dos métodos, y un método a cero se borra.
+  Si una fila la registró el otro socio, se rechaza con su nombre en vez de
+  «guardar» sin hacer nada por culpa de la RLS.
+- **Tabla**: columnas Shopify | PayPal | Total, y junto a cada método
+  «Cobrado DD/MM» o «Pendiente de cobro» (`vw_ventas_cobertura`).
+- **Lo que ya había** se asignó a Shopify Payments. Los días quedaron anotados
+  en `ajustes.revision_metodo_cobro` y /diario muestra un aviso con la lista
+  para corregir a mano los que tuvieron PayPal (se vuelve a registrar el día
+  con su reparto y se sobrescribe). «Ya los he revisado» cierra el aviso.
+- Lo que crea ventas por otra vía (importación de CSV, alta manual en
+  /movimientos) cae en Shopify Payments por defecto, por disparador
+  (`normalizar_cuentas_movimiento`).
+
+### /cobros
+
+- **Plataforma** es un desplegable: Shopify Payments | PayPal (CHECK en la base
+  de datos; columna generada `cobros_pasarela.metodo_cobro`).
+- **Shopify Payments**: «Llegó al banco el», prerrellenado con el miércoles más
+  reciente y la semana anterior de lunes a domingo (`prerrellenoShopify`).
+- **PayPal**: «Llegó a PayPal el»; desde y hasta son esa fecha, o un rango con
+  el interruptor «Varios días». La comisión genera «Comisiones PayPal — DD/MM».
+- **Conciliación por método**: cada cobro se compara SOLO con las ventas de su
+  `metodo_cobro` en su periodo (`vw_cobros_conciliacion`, `fn_ventas_registradas`).
+- **Posibles duplicados**: solo entre cobros de la MISMA plataforma con periodos
+  cruzados (`fn_cobros_solapados`, columna `solapados` de la vista). El
+  formulario lo avisa antes de guardar y pide confirmación; la misma referencia
+  en la misma plataforma se rechaza. Un cobro de PayPal y uno de Shopify del
+  mismo periodo no avisan.
+- **Cabecera**: filtro Todos | Shopify Payments | PayPal (`?plataforma=`) sobre
+  las tres tarjetas y la lista, y una cuarta tarjeta con los saldos de hoy.
+- **Traspaso PayPal → Banco** (tabla `traspasos_paypal`): fecha, importe y
+  comisión. No es ingreso ni gasto. Si hay comisión, se genera el gasto
+  «Comisión traspaso PayPal — DD/MM», protegido como los de los cobros.
+
+### Tesorería: `fn_tesoreria(fecha)`
+
+Sustituye a `fn_saldo_banco`, que se eliminó.
+
+| Cifra | Cálculo |
+| --- | --- |
+| **Saldo en banco** | saldo inicial banco + netos de cobros Shopify + traspasos desde PayPal (lo que llega) − gastos pagados desde el banco − reembolsos pagados desde el banco |
+| **Saldo en PayPal** | saldo inicial PayPal + netos de cobros PayPal − traspasos al banco (lo que sale) − gastos pagados desde PayPal − reembolsos pagados desde PayPal |
+| **Caja total** | banco + PayPal. Es la `caja_disponible` de `fn_estado_liquidacion` |
+| **Pendiente de cobro** | ventas de cada método cuyo día no cubre aún ningún cobro de ese método |
+
+Cada cuenta cuenta desde la fecha de su saldo inicial (/ajustes tiene ahora
+también el de PayPal, `ajustes.saldo_inicial_paypal`). Los gastos generados por
+cobros y traspasos no restan otra vez: el neto ya los lleva descontados.
+
+Al registrar un gasto, «Pagado por» tiene cuatro opciones: los dos socios
+(anticipo de su bolsillo, no sale de ninguna cuenta), **Banco** o **PayPal**
+(`movimientos.cuenta_pago`). Al registrar un reembolso, «Sale de» Banco o PayPal
+(`reembolsos.cuenta_pago`, parámetro `p_cuenta` de `fn_registrar_reembolso`).
+Lo anterior quedó en Banco.
+
+El KPI de caja del dashboard muestra el total con Banco / PayPal debajo y el
+pendiente de cobro, y la alerta de /kpis mira la caja total.
+
+**Cambio de criterio en el pendiente**: en la 0015 era «ventas − brutos
+cobrados»; ahora es «ventas de días que ningún cobro cubre». Un cobro con
+descuadre ya no deja la diferencia como pendiente: la diferencia se ve en la
+conciliación de ese cobro, que es donde hay que corregirla.
+
+### Cómo se aplicó
+
+El 07/10/2026, por la API de gestión de Supabase, en una sola transacción, y
+anotada en `supabase_migrations.schema_migrations` (versión `0017`). Antes se
+ensayó entera dentro de `BEGIN … ROLLBACK` contra el remoto junto con las cinco
+baterías de tests.
+
+### Tests
+
+`supabase/tests/metodos_cobro.sql`, 15 casos, con fechas de 2031: relleno de lo
+existente, día con los dos métodos, KPI iguales con y sin desglose, duplicado
+y sobrescritura, ventas ajenas, **cobro PayPal y Shopify del mismo periodo sin
+aviso y cuadrando**, **días mixtos donde cada cobro concilia con su parte**,
+solape dentro de la misma plataforma, comisión de PayPal, cobros a su cuenta,
+**traspaso que no cambia la caja** (y con comisión, que la baja exactamente en
+la comisión), gastos y reembolsos por cuenta, pendiente por método, caja de la
+liquidación y plataforma no válida. `cobros.sql` se actualizó a
+`fn_tesoreria`. Contra el remoto ya migrado: métodos 15/15, cobros 12/12,
+liquidación 14/14, IVA 6/6, permisos 20/20.
+
+---
+
+## 19. Notas de mantenimiento
 
 - **Añadir una ruta al menú:** se toca solo `src/lib/navegacion.ts`. La sidebar,
   el drawer, la barra inferior y el título de la barra superior salen todos de

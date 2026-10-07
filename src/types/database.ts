@@ -156,6 +156,7 @@ export type Database = {
           id: string
           importe_bruto: number
           importe_neto: number
+          metodo_cobro: string | null
           movimiento_comision_id: string | null
           movimiento_devolucion_id: string | null
           notas: string | null
@@ -174,6 +175,7 @@ export type Database = {
           id?: string
           importe_bruto: number
           importe_neto: number
+          metodo_cobro?: string | null
           movimiento_comision_id?: string | null
           movimiento_devolucion_id?: string | null
           notas?: string | null
@@ -192,6 +194,7 @@ export type Database = {
           id?: string
           importe_bruto?: number
           importe_neto?: number
+          metodo_cobro?: string | null
           movimiento_comision_id?: string | null
           movimiento_devolucion_id?: string | null
           notas?: string | null
@@ -496,6 +499,7 @@ export type Database = {
           concepto: string
           created_at: string | null
           created_by: string
+          cuenta_pago: string | null
           divisa: string
           fecha: string
           fecha_reembolso: string | null
@@ -504,6 +508,7 @@ export type Database = {
           impresiones: number | null
           iva_importe: number
           iva_tipo: number
+          metodo_cobro: string | null
           notas: string | null
           num_pedidos: number | null
           plataforma: string | null
@@ -523,6 +528,7 @@ export type Database = {
           concepto: string
           created_at?: string | null
           created_by: string
+          cuenta_pago?: string | null
           divisa?: string
           fecha: string
           fecha_reembolso?: string | null
@@ -531,6 +537,7 @@ export type Database = {
           impresiones?: number | null
           iva_importe?: number
           iva_tipo?: number
+          metodo_cobro?: string | null
           notas?: string | null
           num_pedidos?: number | null
           plataforma?: string | null
@@ -550,6 +557,7 @@ export type Database = {
           concepto?: string
           created_at?: string | null
           created_by?: string
+          cuenta_pago?: string | null
           divisa?: string
           fecha?: string
           fecha_reembolso?: string | null
@@ -558,6 +566,7 @@ export type Database = {
           impresiones?: number | null
           iva_importe?: number
           iva_tipo?: number
+          metodo_cobro?: string | null
           notas?: string | null
           num_pedidos?: number | null
           plataforma?: string | null
@@ -752,6 +761,7 @@ export type Database = {
         Row: {
           created_at: string | null
           created_by: string
+          cuenta_pago: string
           fecha: string
           id: string
           importe_eur: number
@@ -762,6 +772,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           created_by: string
+          cuenta_pago?: string
           fecha: string
           id?: string
           importe_eur: number
@@ -772,6 +783,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           created_by?: string
+          cuenta_pago?: string
           fecha?: string
           id?: string
           importe_eur?: number
@@ -834,6 +846,81 @@ export type Database = {
         }
         Relationships: []
       }
+      traspasos_paypal: {
+        Row: {
+          comision: number
+          created_at: string | null
+          created_by: string
+          fecha: string
+          id: string
+          importe: number
+          importe_neto: number
+          movimiento_comision_id: string | null
+          notas: string | null
+          referencia: string | null
+        }
+        Insert: {
+          comision?: number
+          created_at?: string | null
+          created_by?: string
+          fecha: string
+          id?: string
+          importe: number
+          importe_neto: number
+          movimiento_comision_id?: string | null
+          notas?: string | null
+          referencia?: string | null
+        }
+        Update: {
+          comision?: number
+          created_at?: string | null
+          created_by?: string
+          fecha?: string
+          id?: string
+          importe?: number
+          importe_neto?: number
+          movimiento_comision_id?: string | null
+          notas?: string | null
+          referencia?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "traspasos_paypal_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "traspasos_paypal_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_socio"
+            referencedColumns: ["socio_id"]
+          },
+          {
+            foreignKeyName: "traspasos_paypal_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "movimientos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "traspasos_paypal_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_pendientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "traspasos_paypal_movimiento_comision_id_fkey"
+            columns: ["movimiento_comision_id"]
+            isOneToOne: false
+            referencedRelation: "vw_libro_gestoria"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       vw_anticipos_pendientes: {
@@ -893,6 +980,7 @@ export type Database = {
           id: string | null
           importe_bruto: number | null
           importe_neto: number | null
+          metodo_cobro: string | null
           movimiento_comision_id: string | null
           movimiento_devolucion_id: string | null
           notas: string | null
@@ -902,6 +990,7 @@ export type Database = {
           periodo_hasta: string | null
           plataforma: string | null
           referencia: string | null
+          solapados: Json | null
           ventas_registradas: number | null
         }
         Relationships: [
@@ -1096,22 +1185,52 @@ export type Database = {
         }
         Relationships: []
       }
+      vw_ventas_cobertura: {
+        Row: {
+          cobro_fecha: string | null
+          cobro_id: string | null
+          cubierta: boolean | null
+          fecha: string | null
+          metodo_cobro: string | null
+          pedidos: number | null
+          ventas: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       es_socio_activo: { Args: never; Returns: boolean }
       fn_anular_reembolso: { Args: { p_reembolso: string }; Returns: undefined }
       fn_aprobar_cierre: { Args: { p_cierre: string }; Returns: Json }
-      fn_categoria_limite: { Args: never; Returns: string }
+      fn_categorias_limite: { Args: never; Returns: string[] }
       fn_cobro_sincronizar_gasto: {
         Args: {
           p_autor: string
           p_categoria: string
           p_concepto: string
+          p_cuenta?: string
           p_fecha: string
           p_importe: number
           p_movimiento: string
         }
         Returns: string
+      }
+      fn_cobros_solapados: {
+        Args: {
+          p_desde: string
+          p_hasta: string
+          p_plataforma: string
+          p_referencia?: string
+        }
+        Returns: {
+          fecha_cobro: string
+          id: string
+          importe_bruto: number
+          motivo: string
+          periodo_desde: string
+          periodo_hasta: string
+          referencia: string
+        }[]
       }
       fn_crear_cierre: {
         Args: {
@@ -1173,6 +1292,7 @@ export type Database = {
       }
       fn_registrar_reembolso: {
         Args: {
+          p_cuenta?: string
           p_fecha: string
           p_importe: number
           p_lineas?: Json
@@ -1181,6 +1301,19 @@ export type Database = {
           p_socio_id: string
         }
         Returns: string
+      }
+      fn_registrar_ventas_dia: {
+        Args: {
+          p_divisa: string
+          p_fecha: string
+          p_paypal_importe: number
+          p_paypal_pedidos: number
+          p_shopify_importe: number
+          p_shopify_pedidos: number
+          p_sobrescribir?: boolean
+          p_tasa: number
+        }
+        Returns: Json
       }
       fn_resumen_iva: {
         Args: { p_desde: string; p_hasta: string }
@@ -1199,22 +1332,33 @@ export type Database = {
         }[]
       }
       fn_retirar_aprobacion: { Args: { p_cierre: string }; Returns: Json }
-      fn_saldo_banco: {
+      fn_tesoreria: {
         Args: { p_fecha_corte?: string }
         Returns: {
-          cobrado_bruto: number
-          cobrado_neto: number
-          fecha_inicial: string
-          gastos_negocio: number
+          caja_total: number
+          cobrado_paypal: number
+          cobrado_shopify: number
+          fecha_inicial_banco: string
+          fecha_inicial_paypal: string
+          gastos_banco: number
+          gastos_paypal: number
+          pendiente_paypal: number
           pendiente_shopify: number
-          reembolsos: number
+          pendiente_total: number
+          reembolsos_banco: number
+          reembolsos_paypal: number
           saldo_banco: number
-          saldo_inicial: number
-          ventas: number
+          saldo_inicial_banco: number
+          saldo_inicial_paypal: number
+          saldo_paypal: number
+          traspasos_entrada: number
+          traspasos_salida: number
+          ventas_paypal: number
+          ventas_shopify: number
         }[]
       }
       fn_ventas_registradas: {
-        Args: { p_desde: string; p_hasta: string }
+        Args: { p_desde: string; p_hasta: string; p_metodo?: string }
         Returns: number
       }
     }

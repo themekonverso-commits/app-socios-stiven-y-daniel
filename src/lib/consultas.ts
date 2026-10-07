@@ -13,6 +13,7 @@ import type {
   TipoMovimiento,
 } from "@/lib/tipos-db";
 import { redondear2 } from "@/lib/dinero";
+import type { MetodoCobro } from "@/lib/metodos-cobro";
 
 /**
  * Consultas de lectura. Todas se ejecutan en el servidor con la sesión del
@@ -342,4 +343,91 @@ export async function obtenerVentasDiarias(dias = 30): Promise<{
 
   if (error) return { filas: [], error: error.message };
   return { filas: (data ?? []) as unknown as MovimientoConRelaciones[], error: null };
+}
+
+/** Ventas de un día y un método, y si ya las cubre un cobro de ese método. */
+export type CoberturaVentas = {
+  fecha: string;
+  metodo: MetodoCobro;
+  ventas: number;
+  cubierta: boolean;
+  cobroFecha: string | null;
+};
+
+/**
+ * Cobertura de las ventas desde una fecha (vista `vw_ventas_cobertura`).
+ * Alimenta el indicador «cobrado / pendiente» de cada día en /diario.
+ */
+export async function obtenerCoberturaVentas(dias = 30): Promise<CoberturaVentas[]> {
+  const supabase = await crearClienteServidor();
+
+  const desde = new Date();
+  desde.setDate(desde.getDate() - (dias - 1));
+
+  const { data, error } = await supabase
+    .from("vw_ventas_cobertura")
+    .select("fecha, metodo_cobro, ventas, cubierta, cobro_fecha")
+    .gte("fecha", desde.toISOString().slice(0, 10));
+
+  if (error || !data) return [];
+
+  return data.map((fila) => ({
+    fecha: fila.fecha ?? "",
+    metodo: (fila.metodo_cobro === "paypal" ? "paypal" : "shopify_payments") as MetodoCobro,
+    ventas: Number(fila.ventas ?? 0),
+    cubierta: Boolean(fila.cubierta),
+    cobroFecha: fila.cobro_fecha ?? null,
+  }));
+}
+
+/** Un día con ventas registradas antes del desglose por método. */
+export type DiaPorRevisar = {
+  fecha: string;
+  shopify: number;
+  paypal: number;
+};
+
+/**
+ * Días con ventas anteriores a la migración 0017. Se asignaron a Shopify
+ * Payments por defecto; /diario los lista para revisar a mano los que
+ * tuvieron PayPal. Devuelve null cuando ya se marcó como revisado.
+ */
+export async function obtenerRevisionMetodos(): Promise<{
+  aplicado: string;
+  dias: DiaPorRevisar[];
+} | null> {
+  const supabase = await crearClienteServidor();
+
+  const { data: ajuste } = await supabase
+    .from("ajustes")
+    .select("valor")
+    .eq("clave", "revision_metodo_cobro")
+    .maybeSingle();
+
+  const valor = (ajuste?.valor ?? null) as
+    | { aplicado?: string; revisado?: boolean; dias?: string[] }
+    | null;
+
+  if (!valor || valor.revisado || !valor.dias?.length) return null;
+
+  // Cómo están hoy esos días: si ya se corrigió uno, se ve con su PayPal.
+  const { data } = await supabase
+    .from("vw_ventas_cobertura")
+    .select("fecha, metodo_cobro, ventas")
+    .in("fecha", valor.dias);
+
+  const porDia = new Map<string, DiaPorRevisar>(
+    valor.dias.map((fecha) => [fecha, { fecha, shopify: 0, paypal: 0 }]),
+  );
+  for (const fila of data ?? []) {
+    const dia = porDia.get(fila.fecha ?? "");
+    if (!dia) continue;
+    if (fila.metodo_cobro === "paypal") dia.paypal += Number(fila.ventas ?? 0);
+    else dia.shopify += Number(fila.ventas ?? 0);
+  }
+
+  return {
+    aplicado: valor.aplicado ?? "",
+    dias: [...porDia.values()].sort((a, b) => b.fecha.localeCompare(a.fecha)),
+  };
 }

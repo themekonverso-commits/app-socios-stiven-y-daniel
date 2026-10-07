@@ -4,16 +4,24 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { crearClienteServidor } from "@/lib/supabase/server";
-import { esquemaCobro } from "@/lib/esquemas/cobro";
+import { esquemaCobro, esquemaTraspaso } from "@/lib/esquemas/cobro";
 import { calcularNeto, conciliar, type Conciliacion } from "@/lib/cobros";
+import {
+  PLATAFORMAS_COBRO,
+  metodoDePlataforma,
+  type PlataformaCobro,
+} from "@/lib/metodos-cobro";
 import type { Resultado } from "@/app/acciones/movimientos";
 
 /**
- * Server Actions de los cobros de la pasarela.
+ * Server Actions de los cobros de la pasarela y de los traspasos PayPal → Banco.
  *
  * Un cobro NO crea ningún ingreso: las ventas ya están en /diario. Sus gastos
  * (comisión y devoluciones) los genera la base de datos por disparador, en la
  * misma transacción que el cobro. Aquí solo se valida y se escribe la fila.
+ *
+ * Desde la 0017 cada cobro es de Shopify Payments o de PayPal, y se concilia
+ * solo con las ventas de su mismo método.
  */
 
 const UUID = z.uuid();
@@ -23,6 +31,12 @@ function traducirError(error: unknown): string {
     const mensaje = String((error as { message: unknown }).message);
     if (mensaje.includes("cobros_referencia_unica")) {
       return "Ese payout ya está registrado: hay otro cobro con la misma referencia.";
+    }
+    if (mensaje.includes("traspasos_neto_cuadra") || mensaje.includes("traspasos_importes_validos")) {
+      return "El traspaso no cuadra: la comisión tiene que ser menor que el importe.";
+    }
+    if (mensaje.includes("cobros_plataforma_valida")) {
+      return "La plataforma tiene que ser Shopify Payments o PayPal.";
     }
     if (mensaje.includes("cobros_neto_cuadra")) {
       return "El neto no cuadra con el desglose (bruto − comisiones − devoluciones + ajustes).";
@@ -37,6 +51,7 @@ function traducirError(error: unknown): string {
 
 function revalidar() {
   revalidatePath("/cobros");
+  revalidatePath("/diario");
   revalidatePath("/movimientos");
   revalidatePath("/kpis");
   revalidatePath("/liquidacion");
@@ -52,31 +67,87 @@ async function exigirSesion() {
   return { supabase, usuario: user ?? null } as const;
 }
 
-/** Ventas de /diario en un rango: para conciliar mientras se rellena el formulario. */
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function plataformaValida(valor: string): valor is PlataformaCobro {
+  return (PLATAFORMAS_COBRO as readonly string[]).includes(valor);
+}
+
+export type Solape = {
+  id: string;
+  fecha_cobro: string;
+  periodo_desde: string;
+  periodo_hasta: string;
+  importe_bruto: number;
+  referencia: string | null;
+  motivo: "periodo" | "referencia";
+};
+
+/**
+ * Lo que el formulario enseña mientras se rellena: las ventas de /diario del
+ * MISMO método en el periodo, y los cobros de la MISMA plataforma que se
+ * solapan con él (o llevan la misma referencia). Un cobro de PayPal y uno de
+ * Shopify del mismo periodo son normales y no aparecen aquí.
+ */
 export async function consultarVentasRegistradas(
   desde: string,
   hasta: string,
-): Promise<Resultado<{ ventas: number }>> {
-  const fecha = /^\d{4}-\d{2}-\d{2}$/;
-  if (!fecha.test(desde) || !fecha.test(hasta) || desde > hasta) {
+  plataforma: string,
+  referencia?: string | null,
+): Promise<Resultado<{ ventas: number; solapados: Solape[] }>> {
+  if (!FECHA_ISO.test(desde) || !FECHA_ISO.test(hasta) || desde > hasta) {
     return { ok: false, error: "Periodo no válido." };
   }
+  if (!plataformaValida(plataforma)) return { ok: false, error: "Plataforma no válida." };
 
   const { supabase, usuario } = await exigirSesion();
   if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
 
-  const { data, error } = await supabase.rpc("fn_ventas_registradas", {
-    p_desde: desde,
-    p_hasta: hasta,
-  });
-  if (error) return { ok: false, error: traducirError(error) };
+  const [ventas, solapes] = await Promise.all([
+    supabase.rpc("fn_ventas_registradas", {
+      p_desde: desde,
+      p_hasta: hasta,
+      p_metodo: metodoDePlataforma(plataforma),
+    }),
+    supabase.rpc("fn_cobros_solapados", {
+      p_plataforma: plataforma,
+      p_desde: desde,
+      p_hasta: hasta,
+      p_referencia: referencia?.trim() || undefined,
+    }),
+  ]);
 
-  return { ok: true, datos: { ventas: Number(data ?? 0) } };
+  if (ventas.error) return { ok: false, error: traducirError(ventas.error) };
+  if (solapes.error) return { ok: false, error: traducirError(solapes.error) };
+
+  return {
+    ok: true,
+    datos: {
+      ventas: Number(ventas.data ?? 0),
+      solapados: (solapes.data ?? []).map((s) => ({
+        id: s.id,
+        fecha_cobro: s.fecha_cobro,
+        periodo_desde: s.periodo_desde,
+        periodo_hasta: s.periodo_hasta,
+        importe_bruto: Number(s.importe_bruto),
+        referencia: s.referencia,
+        motivo: s.motivo === "referencia" ? "referencia" : "periodo",
+      })),
+    },
+  };
 }
 
 export async function crearCobro(
   entrada: unknown,
-): Promise<Resultado<{ id: string; conciliacion: Conciliacion; plataforma: string }>> {
+): Promise<
+  Resultado<{
+    id?: string;
+    conciliacion?: Conciliacion;
+    plataforma?: string;
+    /** Hay cobros de la misma plataforma que se solapan: pedir confirmación. */
+    solapados?: Solape[];
+  }>
+> {
   const { supabase, usuario } = await exigirSesion();
   if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
 
@@ -92,6 +163,39 @@ export async function crearCobro(
 
   const d = validacion.data;
   const neto = calcularNeto(d);
+
+  // Posible duplicado: solo dentro de la misma plataforma. Se avisa y se
+  // guarda únicamente si el usuario lo confirma (una semana partida en dos
+  // payouts es rara, pero existe).
+  if (!d.confirmar_solape) {
+    const { data: solapes, error: errorSolapes } = await supabase.rpc("fn_cobros_solapados", {
+      p_plataforma: d.plataforma,
+      p_desde: d.periodo_desde,
+      p_hasta: d.periodo_hasta,
+      p_referencia: d.referencia || undefined,
+    });
+    if (errorSolapes) return { ok: false, error: traducirError(errorSolapes) };
+
+    const lista = (solapes ?? []).map((s) => ({
+      id: s.id,
+      fecha_cobro: s.fecha_cobro,
+      periodo_desde: s.periodo_desde,
+      periodo_hasta: s.periodo_hasta,
+      importe_bruto: Number(s.importe_bruto),
+      referencia: s.referencia,
+      motivo: (s.motivo === "referencia" ? "referencia" : "periodo") as Solape["motivo"],
+    }));
+
+    // Misma referencia en la misma plataforma: lo impide el índice único, no
+    // tiene sentido ofrecer «guardar igualmente».
+    if (lista.some((s) => s.motivo === "referencia")) {
+      return {
+        ok: false,
+        error: "Ese cobro ya está registrado: hay otro de la misma plataforma con la misma referencia.",
+      };
+    }
+    if (lista.length > 0) return { ok: true, datos: { solapados: lista } };
+  }
 
   const { data, error } = await supabase
     .from("cobros_pasarela")
@@ -161,6 +265,83 @@ export async function eliminarCobro(id: string): Promise<Resultado> {
     return {
       ok: false,
       error: `Este cobro lo registró ${ajeno.autor_nombre ?? "el otro socio"}. Solo él puede eliminarlo.`,
+    };
+  }
+
+  revalidar();
+  return { ok: true };
+}
+
+
+/**
+ * Traspaso PayPal → Banco. No es ingreso ni gasto: solo mueve saldo entre
+ * las dos cuentas del negocio. Si PayPal cobra comisión, la base de datos
+ * genera ese gasto por disparador.
+ */
+export async function crearTraspaso(entrada: unknown): Promise<Resultado<{ id: string }>> {
+  const { supabase, usuario } = await exigirSesion();
+  if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
+
+  const validacion = esquemaTraspaso.safeParse(entrada);
+  if (!validacion.success) {
+    const primero = validacion.error.issues[0];
+    return {
+      ok: false,
+      error: primero?.message ?? "Los datos no son válidos.",
+      campo: primero?.path?.[0]?.toString(),
+    };
+  }
+
+  const d = validacion.data;
+  const importe = Math.round(d.importe * 100) / 100;
+  const comision = Math.round(d.comision * 100) / 100;
+
+  const { data, error } = await supabase
+    .from("traspasos_paypal")
+    .insert({
+      fecha: d.fecha,
+      importe,
+      comision,
+      importe_neto: Math.round((importe - comision) * 100) / 100,
+      referencia: d.referencia || null,
+      notas: d.notas || null,
+      created_by: usuario.id,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) return { ok: false, error: traducirError(error) };
+
+  revalidar();
+  return { ok: true, datos: { id: data.id } };
+}
+
+/** Borra el traspaso y, con él, su gasto de comisión si lo tenía. */
+export async function eliminarTraspaso(id: string): Promise<Resultado> {
+  if (!UUID.safeParse(id).success) return { ok: false, error: "Identificador no válido." };
+
+  const { supabase, usuario } = await exigirSesion();
+  if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
+
+  const { data, error } = await supabase
+    .from("traspasos_paypal")
+    .delete()
+    .eq("id", id)
+    .select("id");
+
+  if (error) return { ok: false, error: traducirError(error) };
+
+  if (!data || data.length === 0) {
+    const { data: ajeno } = await supabase
+      .from("traspasos_paypal")
+      .select("autor:created_by ( nombre )")
+      .eq("id", id)
+      .maybeSingle();
+    if (!ajeno) return { ok: false, error: "Ese traspaso ya no existe." };
+    const nombre = (ajeno.autor as { nombre?: string } | null)?.nombre;
+    return {
+      ok: false,
+      error: `Este traspaso lo registró ${nombre ?? "el otro socio"}. Solo él puede eliminarlo.`,
     };
   }
 

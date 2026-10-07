@@ -124,6 +124,26 @@ function PuntoSocio({
   );
 }
 
+/** Quién pagó un gasto: el socio que lo adelantó, o la cuenta del negocio. */
+function PagadoPor({ movimiento }: { movimiento: MovimientoConRelaciones }) {
+  if (movimiento.tipo === "gasto" && !movimiento.anticipado && movimiento.cuenta_pago) {
+    const cuenta = movimiento.cuenta_pago === "paypal" ? "PayPal" : "Banco";
+    return (
+      <span className="text-xs text-text-secondary" title={`Pagado por el negocio desde ${cuenta}`}>
+        {cuenta}
+        <span className="sr-only"> (pagado por el negocio)</span>
+      </span>
+    );
+  }
+  return (
+    <PuntoSocio
+      nombre={movimiento.anticipado?.nombre ?? null}
+      color={movimiento.anticipado?.color ?? null}
+      papel="Anticipado por"
+    />
+  );
+}
+
 function EstadoReembolso({ movimiento }: { movimiento: MovimientoConRelaciones }) {
   if (movimiento.tipo !== "gasto") {
     return <span className="text-text-muted">—</span>;
@@ -220,7 +240,7 @@ export function ListaMovimientos({
                   title="Quién puso el dinero"
                   className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase"
                 >
-                  Anticipado
+                  Pagado por
                 </th>
                 <th
                   scope="col"
@@ -282,11 +302,7 @@ export function ListaMovimientos({
                   </td>
 
                   <td className="px-4 py-3">
-                    <PuntoSocio
-                      nombre={movimiento.anticipado?.nombre ?? null}
-                      color={movimiento.anticipado?.color ?? null}
-                      papel="Anticipado por"
-                    />
+                    <PagadoPor movimiento={movimiento} />
                   </td>
 
                   <td className="px-4 py-3">
@@ -376,12 +392,8 @@ export function ListaMovimientos({
               <span className="ml-auto flex items-center gap-3">
                 {movimiento.tipo === "gasto" ? (
                   <span className="flex items-center gap-1.5">
-                    <span className="text-text-muted">Anticipó</span>
-                    <PuntoSocio
-                      nombre={movimiento.anticipado?.nombre ?? null}
-                      color={movimiento.anticipado?.color ?? null}
-                      papel="Anticipado por"
-                    />
+                    <span className="text-text-muted">Pagó</span>
+                    <PagadoPor movimiento={movimiento} />
                   </span>
                 ) : null}
 

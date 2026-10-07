@@ -23,7 +23,7 @@ import {
   porcentaje,
   variacion,
 } from "@/lib/kpis";
-import type { ResumenPeriodo, SaldoCaja } from "@/lib/consultas-kpi";
+import type { ResumenPeriodo, Tesoreria } from "@/lib/consultas-kpi";
 import type { Periodo } from "@/lib/periodo";
 
 /** Un número de una cifra o un guion. Nunca NaN, nunca Infinity. */
@@ -42,7 +42,7 @@ export function TarjetasKpi({
   actual: ResumenPeriodo;
   anterior: ResumenPeriodo;
   hayAnterior: boolean;
-  saldo: SaldoCaja;
+  saldo: Tesoreria;
 }) {
   const vs = periodo.comparativa;
 
@@ -139,17 +139,26 @@ export function TarjetasKpi({
         etiquetaVariacion={vs}
       />
 
-      {/* 6 · SALDO EN BANCO — NO depende del selector de periodo */}
+      {/* 6 · CAJA DISPONIBLE — banco + PayPal. NO depende del selector de periodo */}
       <KpiCard
         icono={Wallet}
-        titulo="Saldo en banco"
-        subtitulo={`${formatearEuros(saldo.pendienteShopify)} pendientes en Shopify`}
-        valor={formatearEuros(saldo.saldoBanco)}
-        claseValor={saldo.saldoBanco >= 0 ? "text-text-primary" : "text-danger"}
+        titulo="Caja disponible"
+        subtitulo="Banco + PayPal, hoy"
+        valor={formatearEuros(saldo.cajaTotal)}
+        claseValor={saldo.cajaTotal >= 0 ? "text-text-primary" : "text-danger"}
+        desglose={[
+          { etiqueta: "Banco", valor: formatearEuros(saldo.saldoBanco) },
+          { etiqueta: "PayPal", valor: formatearEuros(saldo.saldoPaypal) },
+          {
+            etiqueta: "Pendiente de cobro",
+            valor: formatearEuros(saldo.pendienteTotal),
+            apagado: true,
+          },
+        ]}
         nota={
-          saldo.fechaInicial
+          saldo.fechaInicialBanco
             ? "Al margen del periodo seleccionado"
-            : "Configura el saldo inicial en Ajustes"
+            : "Configura los saldos iniciales en Ajustes"
         }
         enlace={{ href: "/cobros", texto: "Ver cobros" }}
       />

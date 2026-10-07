@@ -22,7 +22,7 @@ import {
   obtenerGastosPorCategoria,
   obtenerResumen,
   obtenerResumenComparado,
-  obtenerSaldoCaja,
+  obtenerTesoreria,
   obtenerSerieDiaria,
   obtenerUltimosMovimientos,
 } from "@/lib/consultas-kpi";
@@ -89,7 +89,7 @@ export default async function PaginaDashboard({
 async function BloqueKpis({ periodo }: { periodo: Periodo }) {
   const [{ actual, anterior, hayAnterior }, saldo] = await Promise.all([
     obtenerResumenComparado(periodo),
-    obtenerSaldoCaja(),
+    obtenerTesoreria(),
   ]);
 
   return (

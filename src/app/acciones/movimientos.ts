@@ -10,8 +10,7 @@ import {
   type DatosVentaDiaria,
 } from "@/lib/esquemas/movimiento";
 import { convertirAEuros, redondear2, redondear6 } from "@/lib/dinero";
-import { formatearFecha } from "@/lib/formato";
-import type { FilaInsertMovimiento, TipoMovimiento } from "@/lib/tipos-db";
+import type { FilaInsertMovimiento } from "@/lib/tipos-db";
 
 /**
  * Server Actions de movimientos.
@@ -172,6 +171,12 @@ function construirFila(
     base_eur: convertirAEuros(datos.base_imponible, tasa),
     // En los ingresos no hay nadie que adelante dinero.
     anticipado_por: datos.tipo === "gasto" ? datos.anticipado_por : null,
+    // Solo un gasto del negocio sale de una cuenta. Si lo adelantó un socio,
+    // no salió de ninguna (y la base de datos lo deja igualmente en NULL).
+    cuenta_pago:
+      datos.tipo === "gasto" && !datos.anticipado_por
+        ? (datos.cuenta_pago ?? "banco")
+        : null,
     num_pedidos: datos.num_pedidos ?? null,
     plataforma: datos.plataforma ?? null,
     impresiones: datos.impresiones ?? null,
@@ -327,15 +332,16 @@ export async function marcarReembolsado(
 }
 
 /**
- * Registro diario de ventas.
+ * Registro diario de ventas, desglosado por método de cobro (0017).
  *
- * Crea un ingreso en la categoría «Ventas Shopify» con el número de pedidos.
- * Si ya hay un registro para esa fecha lo dice, y solo lo sustituye cuando el
- * usuario lo confirma: duplicar las ventas de un día falsea toda la caja.
+ * Cada método con importe genera su propio ingreso en «Ventas Shopify», con
+ * su `metodo_cobro`. Lo hace `fn_registrar_ventas_dia` en una transacción:
+ * si ya hay ventas ese día devuelve `duplicado` sin tocar nada, y solo las
+ * sustituye cuando el usuario lo confirma. Duplicar un día falsea la caja.
  */
 export async function registrarVentaDiaria(
   entrada: unknown,
-): Promise<Resultado<{ duplicado?: boolean; concepto?: string }>> {
+): Promise<Resultado<{ duplicado?: boolean }>> {
   const { supabase, usuario } = await exigirSesion();
   if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
 
@@ -350,91 +356,63 @@ export async function registrarVentaDiaria(
   }
 
   const datos: DatosVentaDiaria = validacion.data;
-
-  const { data: categoria } = await supabase
-    .from("categorias")
-    .select("id")
-    .eq("tipo", "ingreso")
-    .eq("nombre", "Ventas Shopify")
-    .maybeSingle();
-
-  if (!categoria) {
-    return {
-      ok: false,
-      error:
-        "No existe la categoría «Ventas Shopify». Créala en Categorías o ejecuta la migración.",
-    };
-  }
-
-  const categoriaId = (categoria as { id: string }).id;
-
-  const { data: existentes } = await supabase
-    .from("movimientos")
-    .select("id")
-    .eq("fecha", datos.fecha)
-    .eq("categoria_id", categoriaId)
-    .not("num_pedidos", "is", null);
-
-  const yaHay = (existentes ?? []) as { id: string }[];
-
-  if (yaHay.length > 0 && !datos.sobrescribir) {
-    return {
-      ok: true,
-      datos: { duplicado: true, concepto: formatearFecha(datos.fecha) },
-    };
-  }
-
   const tasa = datos.divisa === "EUR" ? 1 : redondear6(datos.tasa_cambio);
-  const total = redondear2(datos.ingresos);
 
-  const fila: FilaInsertMovimiento = {
-    tipo: "ingreso" as TipoMovimiento,
-    fecha: datos.fecha,
-    concepto: `Ventas del ${formatearFecha(datos.fecha)}`,
-    categoria_id: categoriaId,
-    divisa: datos.divisa,
-    // Las ventas se registran por su importe bruto: el desglose de IVA de las
-    // ventas lo hace la gestoría, no esta pantalla.
-    base_imponible: total,
-    iva_tipo: 0,
-    iva_importe: 0,
-    total,
-    tasa_cambio: tasa,
-    total_eur: convertirAEuros(total, tasa),
-    base_eur: convertirAEuros(total, tasa),
-    anticipado_por: null,
-    num_pedidos: datos.num_pedidos,
-    plataforma: null,
-    impresiones: null,
-    clicks: null,
-    notas: null,
-    created_by: usuario.id,
-  };
-
-  if (yaHay.length > 0) {
-    // Sustituye: actualiza el primero y borra los sobrantes, si los hubiera.
-    const [primero, ...sobrantes] = yaHay;
-    const { created_by: _autoria, ...cambios } = fila;
-    void _autoria;
-
-    const { error } = await supabase
-      .from("movimientos")
-      .update(cambios)
-      .eq("id", primero!.id);
-
-    if (error) return { ok: false, error: mensajeDeError(error) };
-
-    if (sobrantes.length > 0) {
-      await supabase
-        .from("movimientos")
-        .delete()
-        .in("id", sobrantes.map((fila) => fila.id));
-    }
-  } else {
-    const { error } = await supabase.from("movimientos").insert(fila);
-    if (error) return { ok: false, error: mensajeDeError(error) };
+  if (datos.divisa === "USD") {
+    await registrarTasa(supabase, datos.fecha, tasa);
   }
+
+  const { data, error } = await supabase.rpc("fn_registrar_ventas_dia", {
+    p_fecha: datos.fecha,
+    p_divisa: datos.divisa,
+    p_tasa: tasa,
+    p_shopify_importe: redondear2(datos.shopify_importe),
+    p_shopify_pedidos: datos.shopify_pedidos,
+    p_paypal_importe: redondear2(datos.paypal_importe),
+    p_paypal_pedidos: datos.paypal_pedidos,
+    p_sobrescribir: datos.sobrescribir ?? false,
+  });
+
+  if (error) return { ok: false, error: mensajeDeError(error) };
+
+  const respuesta = (data ?? {}) as { duplicado?: boolean };
+  if (respuesta.duplicado) return { ok: true, datos: { duplicado: true } };
 
   revalidar();
   return { ok: true, datos: {} };
+}
+
+/**
+ * Cierra el aviso de /diario sobre los días anteriores al desglose: ya se
+ * revisaron a mano los que tuvieron ventas por PayPal.
+ */
+export async function marcarRevisionMetodosHecha(): Promise<Resultado> {
+  const { supabase, usuario } = await exigirSesion();
+  if (!usuario) return { ok: false, error: "Tu sesión ha caducado. Vuelve a entrar." };
+
+  const { data: fila, error: errorLectura } = await supabase
+    .from("ajustes")
+    .select("valor")
+    .eq("clave", "revision_metodo_cobro")
+    .maybeSingle();
+
+  if (errorLectura) return { ok: false, error: mensajeDeError(errorLectura) };
+  if (!fila) return { ok: true };
+
+  const valor = (fila.valor ?? {}) as Record<string, unknown>;
+  const { error } = await supabase
+    .from("ajustes")
+    .update({
+      valor: {
+        ...valor,
+        revisado: true,
+        revisado_el: new Date().toISOString().slice(0, 10),
+      },
+    })
+    .eq("clave", "revision_metodo_cobro");
+
+  if (error) return { ok: false, error: mensajeDeError(error) };
+
+  revalidatePath("/diario");
+  return { ok: true };
 }

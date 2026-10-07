@@ -16,6 +16,8 @@ import {
 import { CampoImporte } from "@/components/campos/campo-importe";
 import { SelectorFecha } from "@/components/campos/selector-fecha";
 import { registrarReembolso } from "@/app/acciones/liquidacion";
+import { SelectorSegmentado } from "@/components/campos/selector-segmentado";
+import { CUENTAS_PAGO, ETIQUETA_CUENTA, type CuentaPago } from "@/lib/metodos-cobro";
 import { formatearEuros } from "@/lib/formato";
 import { redondear2 } from "@/lib/dinero";
 import { METODOS_REEMBOLSO, type AnticipoPendiente } from "@/lib/tipos-liquidacion";
@@ -89,6 +91,7 @@ export function DialogoReembolso({
   const [fecha, setFecha] = useState(() => iso(new Date()));
   const [importe, setImporte] = useState<number | null>(totalSeleccionado);
   const [metodo, setMetodo] = useState<string>("transferencia");
+  const [cuenta, setCuenta] = useState<CuentaPago>("banco");
   const [notas, setNotas] = useState("");
   const [guardando, iniciarGuardado] = useTransition();
 
@@ -132,6 +135,7 @@ export function DialogoReembolso({
         fecha,
         importe,
         metodo,
+        cuenta,
         notas: notas.trim() || null,
         lineas,
       });
@@ -255,6 +259,17 @@ export function DialogoReembolso({
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-text-primary">Sale de</span>
+              <SelectorSegmentado
+                nombre="reem-cuenta"
+                etiquetaGrupo="Cuenta del negocio de la que sale el reembolso"
+                valor={cuenta}
+                opciones={CUENTAS_PAGO.map((c) => ({ valor: c, etiqueta: ETIQUETA_CUENTA[c] }))}
+                alCambiar={setCuenta}
+              />
             </div>
 
             <div className="flex flex-col gap-1.5">

@@ -20,7 +20,7 @@ import {
   obtenerAjustes,
   obtenerGastosCategoriaPorMes,
   obtenerResumen,
-  obtenerSaldoCaja,
+  obtenerTesoreria,
   obtenerSerieMensual,
   obtenerUltimaVenta,
 } from "@/lib/consultas-kpi";
@@ -100,7 +100,7 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
   ] = await Promise.all([
     obtenerResumen(periodo.desde, periodo.hasta),
     obtenerResumen(inicioMes, finMes),
-    obtenerSaldoCaja(),
+    obtenerTesoreria(),
     obtenerUltimaVenta(),
     obtenerResumenSocios(),
     obtenerLimiteAportacion(),
@@ -144,10 +144,10 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     });
   }
 
-  if (saldo.saldoBanco < 500) {
+  if (saldo.cajaTotal < 500) {
     alertas.push({
       nivel: "ambar",
-      titulo: `Saldo en banco bajo: ${formatearEuros(saldo.saldoBanco)}`,
+      titulo: `Caja baja: ${formatearEuros(saldo.cajaTotal)} (banco ${formatearEuros(saldo.saldoBanco)} · PayPal ${formatearEuros(saldo.saldoPaypal)})`,
       detalle:
         "Por debajo de 500 € cualquier imprevisto obliga a que un socio adelante dinero.",
     });
