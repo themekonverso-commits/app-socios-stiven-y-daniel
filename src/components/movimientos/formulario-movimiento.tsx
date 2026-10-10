@@ -50,6 +50,8 @@ type EstadoFormulario = {
   anticipado_por: string | null;
   /** Gasto pagado por el negocio: de qué cuenta salió. Excluye anticipado_por. */
   cuenta_pago: CuentaPago | null;
+  /** Solo en las ventas del registro diario. Texto para permitir el campo vacío. */
+  num_pedidos: string;
   plataforma: Plataforma | null;
   impresiones: number | null;
   clicks: number | null;
@@ -84,6 +86,8 @@ function estadoInicial(
       cuenta_pago: movimiento.anticipado_por
         ? null
         : ((movimiento.cuenta_pago as CuentaPago | null) ?? null),
+      num_pedidos:
+        movimiento.num_pedidos === null ? "" : String(movimiento.num_pedidos),
       plataforma: (movimiento.plataforma as Plataforma | null) ?? null,
       impresiones: movimiento.impresiones,
       clicks: movimiento.clicks,
@@ -104,6 +108,7 @@ function estadoInicial(
     total: null,
     anticipado_por: usuarioId,
     cuenta_pago: null,
+    num_pedidos: "",
     plataforma: null,
     impresiones: null,
     clicks: null,
@@ -188,6 +193,12 @@ export function FormularioMovimiento({
   );
 
   const esGasto = datos.tipo === "gasto";
+  // Una venta del registro diario es la que lleva nº de pedidos: es lo que la
+  // hace aparecer en /diario y contar en el ticket medio. Al editarla hay que
+  // conservarlo (y poder cambiarlo); si se mandara vacío, la venta
+  // desaparecería del registro diario.
+  const esVentaDiaria = movimiento !== null && movimiento.num_pedidos !== null;
+  const muestraPedidos = esVentaDiaria && !esGasto;
   const esPublicidad = datos.categoria?.nombre.toLowerCase() === "publicidad";
   const tasa = datos.divisa === "EUR" ? 1 : (datos.tasa_cambio ?? 0);
 
@@ -255,6 +266,7 @@ export function FormularioMovimiento({
       total: datos.total ?? 0,
       anticipado_por: esGasto ? datos.anticipado_por : null,
       cuenta_pago: esGasto && !datos.anticipado_por ? datos.cuenta_pago : null,
+      num_pedidos: muestraPedidos ? Number.parseInt(datos.num_pedidos, 10) : null,
       plataforma: esPublicidad ? datos.plataforma : null,
       impresiones: esPublicidad ? datos.impresiones : null,
       clicks: esPublicidad ? datos.clicks : null,
@@ -273,6 +285,9 @@ export function FormularioMovimiento({
     }
     if (datos.divisa === "USD" && (!datos.tasa_cambio || datos.tasa_cambio <= 0)) {
       nuevos.tasa_cambio = "Indica la tasa de cambio.";
+    }
+    if (muestraPedidos && !/^\d+$/.test(datos.num_pedidos.trim())) {
+      nuevos.num_pedidos = "Escribe el número de pedidos (0 o más).";
     }
     if (esGasto && !datos.anticipado_por && !datos.cuenta_pago) {
       nuevos.anticipado_por = "Indica quién pagó: un socio, el banco o PayPal.";
@@ -512,6 +527,33 @@ export function FormularioMovimiento({
             {errores.tasa_cambio ? (
               <p role="alert" className="text-xs text-danger">
                 {errores.tasa_cambio}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* 6b · Nº DE PEDIDOS (solo ventas del registro diario) */}
+        {muestraPedidos ? (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="campo-pedidos" className="text-sm font-medium text-text-primary">
+              Nº de pedidos
+            </label>
+            <input
+              id="campo-pedidos"
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              value={datos.num_pedidos}
+              onChange={(evento) => actualizar({ num_pedidos: evento.target.value })}
+              aria-invalid={errores.num_pedidos ? true : undefined}
+              aria-describedby={errores.num_pedidos ? "error-pedidos" : undefined}
+              placeholder="0"
+              className="cifra h-11 w-full rounded-lg border border-border bg-surface-2 px-3 text-right text-base text-text-primary outline-none focus-visible:border-brand aria-invalid:border-danger"
+            />
+            {errores.num_pedidos ? (
+              <p id="error-pedidos" role="alert" className="text-xs text-danger">
+                {errores.num_pedidos}
               </p>
             ) : null}
           </div>
