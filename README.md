@@ -1403,3 +1403,33 @@ liquidación 14/14, IVA 6/6, permisos 20/20.
   no al runtime del usuario. Se revisará al planificar la subida a Next 16.
 - **No añadir un tema claro** sin revisar antes todos los tokens: hoy se
   declaran una sola vez a propósito.
+
+---
+
+## 20. Multi-tienda y medio de pago (0018–0021)
+
+La sociedad (Daniel y Stiven, 50/50) lleva varias tiendas sin mezclar sus números.
+
+**Por tienda:** movimientos, registro diario, cobros, importaciones, objetivos (`tiendas.objetivo_mes`), KPIs y dashboard.
+**Global:** liquidación (anticipos, reembolsos, prorrata, cierres, liquidación final), Banco y PayPal y sus saldos, la tarjeta de Daniel y su cupo, categorías, socios, tipos de cambio y fase inicial.
+**General / Sociedad** = `tienda_id` NULL: gastos compartidos (Claude, Apimart…). Cuentan en el consolidado y en la liquidación, no en el beneficio de ninguna tienda. Un ingreso siempre es de una tienda (CHECK).
+
+### Tienda activa
+- Vive en `?tienda=<slug>` y en la cookie `tienda`; `todas` y `general` son reservados. El middleware las sincroniza: si la URL lo trae, se guarda; si no, redirige añadiéndolo. Servidor: `obtenerAmbito()` (`lib/tiendas.ts`); cliente: `useAmbito()` (`components/tiendas/proveedor-tiendas.tsx`).
+- Funciones SQL por tienda: `p_tienda` null + `p_solo_general` false = todas; `p_tienda` = id; `p_solo_general` true = General. Helper `argsAmbito()` y `filtrarPorAmbito()` en `lib/ambito.ts`.
+- Una tienda con datos no se borra (FK `on delete restrict`): se archiva. Archivada = no admite movimientos nuevos.
+
+### Medio de pago
+`movimientos.medio_pago` (obligatorio en gastos) sustituye a `cuenta_pago`: `tarjeta_daniel` fija `anticipado_por` al socio de `ajustes.limite_aportacion.socio_id`; `bolsillo` exige socio; `banco`/`paypal` no son anticipo y restan de su cuenta. Lo impone el trigger `normalizar_medio_pago`. Un gasto con reembolsos no puede cambiar de socio.
+
+### Cupo de la tarjeta
+`fn_cupo_tarjeta()`: suma de los gastos con `tarjeta_daniel` de todas las tiendas y General contra 3.000 €. Ya no filtra por categoría. Widget `components/tarjeta/widget-tarjeta.tsx` en el dashboard de cualquier vista, con **Supabase Realtime** sobre `movimientos` (publicación habilitada en la 0018; respeta la RLS). Ante cualquier cambio vuelve a pedir la función.
+
+### Cómo se aplicó
+- **0018** (14/10/2026): en un solo lote que se comprueba a sí mismo: foto de 30 métricas antes, foto de TheGlowCoSpain y de «todas» después, y aborta si una difiere un céntimo. Ensayo y aplicación: idénticas (resultado en `scripts/sql/aplicar-0018.resultado.json`, resumen en `scripts/sql/foto-0018-resumen.sql`). Todo lo existente pasó a TheGlowCoSpain; medio de pago: 45 bolsillo, 2 banco, 3 PayPal.
+- **0019**: retira la compatibilidad con la app anterior (`cuenta_pago`, vistas y firmas sin tienda, `objetivo_mes` en ajustes, tienda por defecto). Se aplicó tras verificar el despliegue.
+- **0020** (reclasificación) y **0021** (gastos de octubre con tarjeta): por id, con comprobación de que el total de la sociedad no cambia. Se aplican solo con el visto bueno de los socios.
+- Aplicación: `npx supabase db query --linked -f <archivo>` (Management API) y anotación en `supabase_migrations.schema_migrations`. Un lote sin `begin` es una transacción: un error lo deshace entero.
+
+### Tests
+`supabase/tests/multitienda.sql`, 14 casos: aislamiento entre tiendas, Todas = tiendas + General, cupo global, tarjeta fuerza a Daniel, banco/PayPal restan su saldo sin anticipo, anticipo de una tienda reembolsado en la liquidación global, borrado de tienda con datos, bolsillo sin socio, ingreso sin tienda, conciliación por tienda, diario por tienda, anticipo reembolsado inmutable, RLS de tiendas y tienda archivada. Las otras cinco baterías adaptadas. Contra el remoto tras la 0019: 81/81.

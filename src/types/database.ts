@@ -185,7 +185,7 @@ export type Database = {
           periodo_hasta: string
           plataforma?: string
           referencia?: string | null
-          tienda_id?: string
+          tienda_id: string
         }
         Update: {
           comisiones?: number
@@ -346,13 +346,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "cuentas_activos_categoria_gasto_id_fkey"
-            columns: ["categoria_gasto_id"]
-            isOneToOne: false
-            referencedRelation: "vw_gastos_categoria"
-            referencedColumns: ["categoria_id"]
-          },
-          {
             foreignKeyName: "cuentas_activos_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
@@ -412,7 +405,7 @@ export type Database = {
           importe_total_eur?: number
           nombre_archivo: string
           origen?: string | null
-          tienda_id?: string
+          tienda_id: string
         }
         Update: {
           created_at?: string | null
@@ -494,7 +487,7 @@ export type Database = {
           id?: string
           nombre: string
           origen?: string | null
-          tienda_id?: string
+          tienda_id: string
         }
         Update: {
           config?: Json
@@ -539,7 +532,6 @@ export type Database = {
           concepto: string
           created_at: string | null
           created_by: string
-          cuenta_pago: string | null
           divisa: string
           fecha: string
           fecha_reembolso: string | null
@@ -570,7 +562,6 @@ export type Database = {
           concepto: string
           created_at?: string | null
           created_by: string
-          cuenta_pago?: string | null
           divisa?: string
           fecha: string
           fecha_reembolso?: string | null
@@ -601,7 +592,6 @@ export type Database = {
           concepto?: string
           created_at?: string | null
           created_by?: string
-          cuenta_pago?: string | null
           divisa?: string
           fecha?: string
           fecha_reembolso?: string | null
@@ -644,13 +634,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "categorias"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "movimientos_categoria_id_fkey"
-            columns: ["categoria_id"]
-            isOneToOne: false
-            referencedRelation: "vw_gastos_categoria"
-            referencedColumns: ["categoria_id"]
           },
           {
             foreignKeyName: "movimientos_created_by_fkey"
@@ -1235,13 +1218,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "cuentas_activos_categoria_gasto_id_fkey"
-            columns: ["categoria_gasto_id"]
-            isOneToOne: false
-            referencedRelation: "vw_gastos_categoria"
-            referencedColumns: ["categoria_id"]
-          },
-          {
             foreignKeyName: "cuentas_activos_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
@@ -1278,15 +1254,6 @@ export type Database = {
           },
         ]
       }
-      vw_gastos_categoria: {
-        Row: {
-          categoria: string | null
-          categoria_id: string | null
-          mes: string | null
-          total: number | null
-        }
-        Relationships: []
-      }
       vw_libro_gestoria: {
         Row: {
           anticipado_por: string | null
@@ -1318,33 +1285,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      vw_resumen_diario: {
-        Row: {
-          beneficio: number | null
-          clicks: number | null
-          fecha: string | null
-          gasto_ads: number | null
-          gastos: number | null
-          impresiones: number | null
-          ingresos: number | null
-          pedidos: number | null
-        }
-        Relationships: []
-      }
-      vw_resumen_mensual: {
-        Row: {
-          beneficio: number | null
-          gasto_ads: number | null
-          gastos: number | null
-          ingresos: number | null
-          margen: number | null
-          mes: string | null
-          pedidos: number | null
-          roas: number | null
-          ticket_medio: number | null
-        }
-        Relationships: []
       }
       vw_ventas_cobertura: {
         Row: {
@@ -1385,42 +1325,24 @@ export type Database = {
         }
         Returns: string
       }
-      fn_cobros_solapados:
-        | {
-            Args: {
-              p_desde: string
-              p_hasta: string
-              p_plataforma: string
-              p_referencia?: string
-            }
-            Returns: {
-              fecha_cobro: string
-              id: string
-              importe_bruto: number
-              motivo: string
-              periodo_desde: string
-              periodo_hasta: string
-              referencia: string
-            }[]
-          }
-        | {
-            Args: {
-              p_desde: string
-              p_hasta: string
-              p_plataforma: string
-              p_referencia: string
-              p_tienda: string
-            }
-            Returns: {
-              fecha_cobro: string
-              id: string
-              importe_bruto: number
-              motivo: string
-              periodo_desde: string
-              periodo_hasta: string
-              referencia: string
-            }[]
-          }
+      fn_cobros_solapados: {
+        Args: {
+          p_desde: string
+          p_hasta: string
+          p_plataforma: string
+          p_referencia: string
+          p_tienda: string
+        }
+        Returns: {
+          fecha_cobro: string
+          id: string
+          importe_bruto: number
+          motivo: string
+          periodo_desde: string
+          periodo_hasta: string
+          referencia: string
+        }[]
+      }
       fn_comparativa_tiendas: {
         Args: { p_desde: string; p_hasta: string }
         Returns: {
@@ -1475,28 +1397,17 @@ export type Database = {
         Args: { p_importacion: string }
         Returns: Json
       }
-      fn_importar_movimientos:
-        | {
-            Args: {
-              p_filas: Json
-              p_filas_omitidas?: number
-              p_filas_totales?: number
-              p_nombre_archivo: string
-              p_origen: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_filas: Json
-              p_filas_omitidas: number
-              p_filas_totales: number
-              p_nombre_archivo: string
-              p_origen: string
-              p_tienda: string
-            }
-            Returns: Json
-          }
+      fn_importar_movimientos: {
+        Args: {
+          p_filas: Json
+          p_filas_omitidas: number
+          p_filas_totales: number
+          p_nombre_archivo: string
+          p_origen: string
+          p_tienda: string
+        }
+        Returns: Json
+      }
       fn_liquidacion_calculo: { Args: { p_socios: Json }; Returns: Json }
       fn_liquidacion_final: { Args: never; Returns: Json }
       fn_marcar_reembolsado: {
@@ -1533,34 +1444,20 @@ export type Database = {
         }
         Returns: string
       }
-      fn_registrar_ventas_dia:
-        | {
-            Args: {
-              p_divisa: string
-              p_fecha: string
-              p_paypal_importe: number
-              p_paypal_pedidos: number
-              p_shopify_importe: number
-              p_shopify_pedidos: number
-              p_sobrescribir?: boolean
-              p_tasa: number
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_divisa: string
-              p_fecha: string
-              p_paypal_importe: number
-              p_paypal_pedidos: number
-              p_shopify_importe: number
-              p_shopify_pedidos: number
-              p_sobrescribir: boolean
-              p_tasa: number
-              p_tienda: string
-            }
-            Returns: Json
-          }
+      fn_registrar_ventas_dia: {
+        Args: {
+          p_divisa: string
+          p_fecha: string
+          p_paypal_importe: number
+          p_paypal_pedidos: number
+          p_shopify_importe: number
+          p_shopify_pedidos: number
+          p_sobrescribir: boolean
+          p_tasa: number
+          p_tienda: string
+        }
+        Returns: Json
+      }
       fn_resumen_diario: {
         Args: { p_solo_general: boolean; p_tienda: string }
         Returns: {
@@ -1574,17 +1471,15 @@ export type Database = {
           pedidos: number
         }[]
       }
-      fn_resumen_iva:
-        | { Args: { p_desde: string; p_hasta: string }; Returns: Json }
-        | {
-            Args: {
-              p_desde: string
-              p_hasta: string
-              p_solo_general: boolean
-              p_tienda: string
-            }
-            Returns: Json
-          }
+      fn_resumen_iva: {
+        Args: {
+          p_desde: string
+          p_hasta: string
+          p_solo_general: boolean
+          p_tienda: string
+        }
+        Returns: Json
+      }
       fn_resumen_mensual: {
         Args: { p_solo_general: boolean; p_tienda: string }
         Returns: {
@@ -1599,36 +1494,23 @@ export type Database = {
           ticket_medio: number
         }[]
       }
-      fn_resumen_periodo:
-        | {
-            Args: { p_desde: string; p_hasta: string }
-            Returns: {
-              beneficio: number
-              clicks: number
-              gasto_ads: number
-              gastos: number
-              impresiones: number
-              ingresos: number
-              pedidos: number
-            }[]
-          }
-        | {
-            Args: {
-              p_desde: string
-              p_hasta: string
-              p_solo_general: boolean
-              p_tienda: string
-            }
-            Returns: {
-              beneficio: number
-              clicks: number
-              gasto_ads: number
-              gastos: number
-              impresiones: number
-              ingresos: number
-              pedidos: number
-            }[]
-          }
+      fn_resumen_periodo: {
+        Args: {
+          p_desde: string
+          p_hasta: string
+          p_solo_general: boolean
+          p_tienda: string
+        }
+        Returns: {
+          beneficio: number
+          clicks: number
+          gasto_ads: number
+          gastos: number
+          impresiones: number
+          ingresos: number
+          pedidos: number
+        }[]
+      }
       fn_retirar_aprobacion: { Args: { p_cierre: string }; Returns: Json }
       fn_socio_tarjeta: { Args: never; Returns: string }
       fn_tesoreria: {
@@ -1656,20 +1538,15 @@ export type Database = {
           ventas_shopify: number
         }[]
       }
-      fn_ventas_registradas:
-        | {
-            Args: { p_desde: string; p_hasta: string; p_metodo?: string }
-            Returns: number
-          }
-        | {
-            Args: {
-              p_desde: string
-              p_hasta: string
-              p_metodo: string
-              p_tienda: string
-            }
-            Returns: number
-          }
+      fn_ventas_registradas: {
+        Args: {
+          p_desde: string
+          p_hasta: string
+          p_metodo: string
+          p_tienda: string
+        }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
