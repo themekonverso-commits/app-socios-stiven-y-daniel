@@ -13,6 +13,7 @@ export default async function PaginaAjustes() {
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <EncabezadoPagina
+        alcance="global"
         titulo="Ajustes"
         descripcion="Saldos de partida del banco y de PayPal, y objetivos del mes."
       />

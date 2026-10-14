@@ -30,6 +30,7 @@ export default async function PaginaCierres() {
   return (
     <div className="flex flex-col gap-5">
       <EncabezadoPagina
+        alcance="global"
         titulo="Cierres trimestrales"
         descripcion="El acta de cada reunión: cifras, decisión de reparto y las dos firmas."
         acciones={

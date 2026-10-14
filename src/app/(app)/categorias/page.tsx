@@ -10,6 +10,7 @@ export default async function PaginaCategorias() {
   return (
     <div className="flex flex-col gap-6">
       <EncabezadoPagina
+        alcance="global"
         titulo="Categorías"
         descripcion="Aquí se limpian las categorías que se crearon sobre la marcha desde el formulario."
       />

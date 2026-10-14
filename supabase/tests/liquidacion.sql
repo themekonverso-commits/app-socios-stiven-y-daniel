@@ -6,14 +6,17 @@
 --   una tabla con un PASA/FALLA por caso.
 --
 -- NO ESCRIBE NADA EN LA BASE DE DATOS.
---   · Los casos 1 a 7 atacan las funciones PURAS (fn_prorrata_calculo,
+--   · Los casos 1 a 8 atacan las funciones PURAS (fn_prorrata_calculo,
 --     fn_liquidacion_calculo, fn_en_fase_inicial). No leen ni escriben tablas:
 --     reciben los datos como jsonb. Por eso el cálculo del dinero se separó en
 --     dos capas.
---   · Los casos 8 y 9 comprueban dos triggers, y para eso hacen falta filas.
---     Van dentro del BEGIN … ROLLBACK de este mismo archivo: nada llega a
---     confirmarse. La tabla de resultados es TEMPORARY y muere con la
---     transacción.
+--   · Los casos 9 a 14 comprueban triggers y vistas, y para eso hacen falta
+--     filas. Van dentro del BEGIN … ROLLBACK de este mismo archivo: nada llega
+--     a confirmarse. La tabla de resultados y la tienda de pruebas
+--     (slug test-liquidacion) mueren con la transacción.
+--   · Desde la 0018 el cupo de la tarjeta (R6) no va por categorías: cuenta
+--     los gastos con medio_pago = 'tarjeta_daniel', de todas las tiendas y de
+--     General.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 begin;
@@ -25,6 +28,12 @@ create temporary table _resultados (
   obtenido text,
   ok       boolean
 ) on commit drop;
+
+-- Tienda de pruebas (0018): los gastos de los casos del cupo se reparten
+-- entre ella y General para comprobar que el cupo es global.
+insert into public.tiendas (nombre, slug, created_by)
+select 'TEST tienda liquidación', 'test-liquidacion', p.id
+from public.profiles p where p.activo = true order by p.nombre limit 1;
 
 
 -- ───────────────────────────────────────────────────────────────────────────
@@ -252,20 +261,21 @@ end $$;
 
 
 -- ───────────────────────────────────────────────────────────────────────────
--- R6 — ÁMBITO DEL CUPO DE APORTACIÓN
+-- R6 — ÁMBITO DEL CUPO DE APORTACIÓN (desde la 0018: el medio de pago)
 -- ───────────────────────────────────────────────────────────────────────────
 
--- 12. El cupo de la tarjeta solo cuenta publicidad; el derecho a reembolso
---     cuenta todo. Un socio adelanta 800 € de anuncios y 200 € de una
---     herramienta: el cupo consume 800, pero se le deben 1.000.
+-- 12. El cupo solo cuenta lo pagado con la tarjeta; el derecho a reembolso
+--     cuenta todo. El socio de la tarjeta paga 800 € de anuncios con la
+--     tarjeta y 200 € de una herramienta de su bolsillo: el cupo consume 800,
+--     pero se le deben 1.000.
 --
 --     Es la distinción que da sentido a la regla 6: los 3.000 € son el cupo
---     de una tarjeta destinada a publicidad, no un tope a lo que un socio
---     puede adelantar. Adelantar Shopify no gasta tarjeta, pero se devuelve
---     igual.
+--     de una tarjeta, no un tope a lo que un socio puede adelantar. Adelantar
+--     de su bolsillo no gasta tarjeta, pero se devuelve igual.
 do $$
 declare
   v_socio        uuid;
+  v_tienda       uuid;
   v_publicidad   uuid;
   v_herramienta  uuid;
   v_cupo_antes   numeric;
@@ -275,26 +285,21 @@ declare
   v_otros        numeric;
   v_pendiente    numeric;
 begin
-  select id into v_socio from public.profiles where activo = true limit 1;
+  -- El titular de la tarjeta sale del ajuste, no de un nombre.
+  v_socio := public.fn_socio_tarjeta();
+  select id into v_tienda from public.tiendas where slug = 'test-liquidacion';
 
   select id into v_publicidad
   from public.categorias where nombre = 'Publicidad' and tipo = 'gasto' limit 1;
 
-  -- Una categoría que NO gasta tarjeta (desde la 0016 producto y envíos sí).
   select id into v_herramienta
   from public.categorias
   where nombre = 'Herramientas de IA y software' and tipo = 'gasto'
   limit 1;
 
-  -- El ajuste apunta SOLO a Publicidad para aislar este caso del 14.
-  update public.ajustes
-  set valor = (valor - 'categoria_id')
-              || jsonb_build_object('categoria_ids', jsonb_build_array(v_publicidad))
-  where clave = 'limite_aportacion';
-
-  -- Se mide por DIFERENCIA: los casos 10 y 11 ya dejaron anticipos de este
-  -- mismo socio dentro de la transacción, y comparar contra cero daría un
-  -- fallo que no es del código sino del orden de los tests.
+  -- Se mide por DIFERENCIA: los casos 10 y 11 pueden haber dejado anticipos
+  -- de este mismo socio dentro de la transacción, y la base real ya tiene los
+  -- suyos; comparar contra cero daría un fallo que no es del código.
   select coalesce(v.anticipado_cupo, 0), coalesce(v.anticipado_otros, 0),
          coalesce(v.pendiente, 0)
     into v_cupo_antes, v_otros_antes, v_pend_antes
@@ -304,12 +309,12 @@ begin
   insert into public.movimientos (
     tipo, fecha, concepto, categoria_id, divisa,
     base_imponible, iva_tipo, iva_importe, total,
-    tasa_cambio, total_eur, base_eur, anticipado_por, created_by)
+    tasa_cambio, total_eur, base_eur, anticipado_por, medio_pago, tienda_id, created_by)
   values
     ('gasto', '1990-03-01', 'TEST anuncios', v_publicidad, 'EUR',
-     800, 0, 0, 800, 1, 800, 800, v_socio, v_socio),
+     800, 0, 0, 800, 1, 800, 800, v_socio, 'tarjeta_daniel', v_tienda, v_socio),
     ('gasto', '1990-03-02', 'TEST herramienta', v_herramienta, 'EUR',
-     200, 0, 0, 200, 1, 200, 200, v_socio, v_socio);
+     200, 0, 0, 200, 1, 200, 200, v_socio, 'bolsillo', null, v_socio);
 
   select v.anticipado_cupo - v_cupo_antes,
          v.anticipado_otros - v_otros_antes,
@@ -320,7 +325,7 @@ begin
 
   insert into _resultados values (
     12,
-    'Cupo publicitario: 800 € de anuncios + 200 € de herramienta',
+    'Cupo de la tarjeta: 800 € de anuncios con tarjeta + 200 € de herramienta de bolsillo',
     'cupo=+800.00, otros=+200.00, pendiente=+1000.00',
     'cupo=' || coalesce(v_cupo::text, 'null')
       || ', otros=' || coalesce(v_otros::text, 'null')
@@ -329,98 +334,121 @@ begin
 end $$;
 
 
--- 13. Sin ámbito definido (ni categoria_ids ni categoria_id) se comporta como
---     antes: el cupo suma TODOS los anticipos. Es la compatibilidad hacia
---     atrás que prometen las migraciones 0011 y 0016.
+-- 13. Un gasto con la tarjeta es siempre un anticipo del titular: aunque
+--     llegue sin anticipado_por, el trigger lo fija al socio de la tarjeta.
+--     Sube el cupo y el anticipado en lo mismo; «otros» no se mueve, y
+--     fn_cupo_tarjeta() lo cuenta como consumido.
 do $$
 declare
-  v_socio       uuid;
-  v_categoria   uuid;
-  v_cupo        numeric;
-  v_otros       numeric;
-  v_anticipado  numeric;
+  v_socio        uuid;
+  v_categoria    uuid;
+  v_mov          uuid;
+  v_quien        uuid;
+  v_cupo_antes   numeric;
+  v_otros_antes  numeric;
+  v_ant_antes    numeric;
+  v_cons_antes   numeric;
+  v_cupo         numeric;
+  v_otros        numeric;
+  v_anticipado   numeric;
+  v_consumido    numeric;
 begin
-  select id into v_socio from public.profiles where activo = true limit 1;
+  v_socio := public.fn_socio_tarjeta();
   select id into v_categoria from public.categorias where tipo = 'gasto' limit 1;
 
-  update public.ajustes
-  set valor = (valor - 'categoria_ids') || '{"categoria_id": null}'::jsonb
-  where clave = 'limite_aportacion';
+  select coalesce(v.anticipado_cupo, 0), coalesce(v.anticipado_otros, 0), coalesce(v.anticipado, 0)
+    into v_cupo_antes, v_otros_antes, v_ant_antes
+  from public.vw_anticipos_socio v where v.socio_id = v_socio;
+  v_cons_antes := (public.fn_cupo_tarjeta() ->> 'consumido')::numeric;
 
   insert into public.movimientos (
     tipo, fecha, concepto, categoria_id, divisa,
     base_imponible, iva_tipo, iva_importe, total,
-    tasa_cambio, total_eur, base_eur, anticipado_por, created_by)
-  values ('gasto', '1990-04-01', 'TEST sin ambito', v_categoria, 'EUR',
-          150, 0, 0, 150, 1, 150, 150, v_socio, v_socio);
+    tasa_cambio, total_eur, base_eur, anticipado_por, medio_pago, created_by)
+  values ('gasto', '1990-04-01', 'TEST tarjeta sin socio', v_categoria, 'EUR',
+          150, 0, 0, 150, 1, 150, 150, null, 'tarjeta_daniel', v_socio)
+  returning id, anticipado_por into v_mov, v_quien;
 
-  select v.anticipado, v.anticipado_cupo, v.anticipado_otros
+  select v.anticipado - v_ant_antes, v.anticipado_cupo - v_cupo_antes,
+         v.anticipado_otros - v_otros_antes
     into v_anticipado, v_cupo, v_otros
   from public.vw_anticipos_socio v
   where v.socio_id = v_socio;
+  v_consumido := (public.fn_cupo_tarjeta() ->> 'consumido')::numeric - v_cons_antes;
 
   insert into _resultados values (
     13,
-    'Sin ámbito (sin categorías): el cupo vuelve a sumarlo todo',
-    'cupo = anticipado, otros=0.00',
-    'cupo=' || coalesce(v_cupo::text, 'null')
-      || ', anticipado=' || coalesce(v_anticipado::text, 'null')
-      || ', otros=' || coalesce(v_otros::text, 'null'),
-    v_cupo = v_anticipado and v_otros = 0.00);
+    'Gasto con tarjeta sin socio: lo adelanta el titular y sube cupo y anticipado por igual',
+    'titular=sí, cupo=+150.00, anticipado=+150.00, otros=+0.00, consumido=+150.00',
+    'titular=' || case when v_quien = v_socio then 'sí' else coalesce(v_quien::text, 'null') end
+      || ', cupo=+' || coalesce(v_cupo::text, 'null')
+      || ', anticipado=+' || coalesce(v_anticipado::text, 'null')
+      || ', otros=+' || coalesce(v_otros::text, 'null')
+      || ', consumido=+' || coalesce(v_consumido::text, 'null'),
+    v_quien = v_socio and v_cupo = 150.00 and v_anticipado = 150.00
+      and v_otros = 0.00 and v_consumido = 150.00);
 end $$;
 
--- 14. Desde la 0016 la tarjeta paga también producto y envío: un socio
---     adelanta 100 € de anuncios, 60 € de producto a CJ, 15 € de envío y 40 €
---     de una herramienta. El cupo consume 175; la herramienta sigue fuera.
+-- 14. Desde la 0018 la categoría ya no decide: el titular paga con la
+--     tarjeta 100 € de anuncios, 60 € de producto a CJ, 15 € de envío y 40 €
+--     de una herramienta (unos en la tienda de pruebas y otros en General), y
+--     30 € más de anuncios de su bolsillo. El cupo consume 215; los anuncios
+--     de bolsillo van a «otros». Un gasto del banco no toca los anticipos.
 do $$
 declare
   v_socio       uuid;
+  v_tienda      uuid;
   v_publicidad  uuid;
   v_producto    uuid;
   v_envio       uuid;
   v_herramienta uuid;
   v_cupo_antes  numeric;
   v_otros_antes numeric;
+  v_ant_antes   numeric;
+  v_cons_antes  numeric;
   v_cupo        numeric;
   v_otros       numeric;
+  v_anticipado  numeric;
+  v_consumido   numeric;
 begin
-  select id into v_socio from public.profiles where activo = true limit 1;
+  v_socio := public.fn_socio_tarjeta();
+  select id into v_tienda      from public.tiendas where slug = 'test-liquidacion';
   select id into v_publicidad  from public.categorias where nombre = 'Publicidad' and tipo = 'gasto';
   select id into v_producto    from public.categorias where nombre = 'Coste de producto' and tipo = 'gasto';
   select id into v_envio       from public.categorias where nombre = 'Envíos y logística' and tipo = 'gasto';
   select id into v_herramienta from public.categorias where nombre = 'Herramientas de IA y software' and tipo = 'gasto';
 
-  -- El ámbito tal como lo deja la 0016.
-  update public.ajustes
-  set valor = (valor - 'categoria_id')
-              || jsonb_build_object('categoria_ids',
-                   jsonb_build_array(v_publicidad, v_producto, v_envio))
-  where clave = 'limite_aportacion';
-
-  select coalesce(v.anticipado_cupo, 0), coalesce(v.anticipado_otros, 0)
-    into v_cupo_antes, v_otros_antes
+  select coalesce(v.anticipado_cupo, 0), coalesce(v.anticipado_otros, 0), coalesce(v.anticipado, 0)
+    into v_cupo_antes, v_otros_antes, v_ant_antes
   from public.vw_anticipos_socio v where v.socio_id = v_socio;
+  v_cons_antes := (public.fn_cupo_tarjeta() ->> 'consumido')::numeric;
 
   insert into public.movimientos (
     tipo, fecha, concepto, categoria_id, divisa,
     base_imponible, iva_tipo, iva_importe, total,
-    tasa_cambio, total_eur, base_eur, anticipado_por, created_by)
+    tasa_cambio, total_eur, base_eur, anticipado_por, medio_pago, tienda_id, created_by)
   values
-    ('gasto', '1990-05-01', 'TEST anuncios',    v_publicidad,  'EUR', 100, 0, 0, 100, 1, 100, 100, v_socio, v_socio),
-    ('gasto', '1990-05-02', 'TEST CJ producto', v_producto,    'EUR',  60, 0, 0,  60, 1,  60,  60, v_socio, v_socio),
-    ('gasto', '1990-05-03', 'TEST envío',       v_envio,       'EUR',  15, 0, 0,  15, 1,  15,  15, v_socio, v_socio),
-    ('gasto', '1990-05-04', 'TEST herramienta', v_herramienta, 'EUR',  40, 0, 0,  40, 1,  40,  40, v_socio, v_socio);
+    ('gasto', '1990-05-01', 'TEST anuncios',          v_publicidad,  'EUR', 100, 0, 0, 100, 1, 100, 100, v_socio, 'tarjeta_daniel', v_tienda, v_socio),
+    ('gasto', '1990-05-02', 'TEST CJ producto',       v_producto,    'EUR',  60, 0, 0,  60, 1,  60,  60, v_socio, 'tarjeta_daniel', v_tienda, v_socio),
+    ('gasto', '1990-05-03', 'TEST envío',             v_envio,       'EUR',  15, 0, 0,  15, 1,  15,  15, v_socio, 'tarjeta_daniel', null,     v_socio),
+    ('gasto', '1990-05-04', 'TEST herramienta',       v_herramienta, 'EUR',  40, 0, 0,  40, 1,  40,  40, v_socio, 'tarjeta_daniel', null,     v_socio),
+    ('gasto', '1990-05-05', 'TEST anuncios bolsillo', v_publicidad,  'EUR',  30, 0, 0,  30, 1,  30,  30, v_socio, 'bolsillo',       v_tienda, v_socio),
+    ('gasto', '1990-05-06', 'TEST anuncios banco',    v_publicidad,  'EUR',  25, 0, 0,  25, 1,  25,  25, null,    'banco',          v_tienda, v_socio);
 
-  select v.anticipado_cupo - v_cupo_antes, v.anticipado_otros - v_otros_antes
-    into v_cupo, v_otros
+  select v.anticipado_cupo - v_cupo_antes, v.anticipado_otros - v_otros_antes,
+         v.anticipado - v_ant_antes
+    into v_cupo, v_otros, v_anticipado
   from public.vw_anticipos_socio v where v.socio_id = v_socio;
+  v_consumido := (public.fn_cupo_tarjeta() ->> 'consumido')::numeric - v_cons_antes;
 
   insert into _resultados values (
     14,
-    'Cupo de la tarjeta: anuncios 100 + producto 60 + envío 15 entran; herramienta 40 no',
-    'cupo=+175.00, otros=+40.00',
-    'cupo=' || coalesce(v_cupo::text, 'null') || ', otros=' || coalesce(v_otros::text, 'null'),
-    v_cupo = 175.00 and v_otros = 40.00);
+    'Cupo de la tarjeta: anuncios 100 + producto 60 + envío 15 + herramienta 40 con tarjeta entran; 30 de bolsillo y 25 del banco no',
+    'cupo=+215.00, otros=+30.00, anticipado=+245.00, consumido=+215.00',
+    'cupo=+' || coalesce(v_cupo::text, 'null') || ', otros=+' || coalesce(v_otros::text, 'null')
+      || ', anticipado=+' || coalesce(v_anticipado::text, 'null')
+      || ', consumido=+' || coalesce(v_consumido::text, 'null'),
+    v_cupo = 215.00 and v_otros = 30.00 and v_anticipado = 245.00 and v_consumido = 215.00);
 end $$;
 
 

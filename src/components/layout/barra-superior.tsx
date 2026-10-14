@@ -7,6 +7,7 @@ import { Menu } from "lucide-react";
 import { Logo } from "@/components/layout/logo";
 import { MenuUsuario, type UsuarioSidebar } from "@/components/layout/menu-usuario";
 import { NavegacionSidebar } from "@/components/layout/navegacion-sidebar";
+import { SelectorTienda } from "@/components/tiendas/selector-tienda";
 import {
   Sheet,
   SheetContent,
@@ -67,9 +68,11 @@ export function BarraSuperior({ usuario }: { usuario: UsuarioSidebar }) {
         </SheetContent>
       </Sheet>
 
-      <span className="truncate text-base font-semibold text-text-primary">
-        {enlaceActual?.titulo ?? "Dashboard"}
-      </span>
+      <span className="sr-only">{enlaceActual?.titulo ?? "Dashboard"}</span>
+      {/* En móvil la tienda activa va en la cabecera: siempre a la vista. */}
+      <div className="flex min-w-0 flex-1">
+        <SelectorTienda compacto />
+      </div>
     </header>
   );
 }

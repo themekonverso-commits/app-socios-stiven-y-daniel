@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Scale,
   Settings,
+  Store,
   StickyNote,
   Tags,
   Upload,
@@ -57,6 +58,7 @@ export const NAVEGACION: GrupoNavegacion[] = [
   {
     titulo: "Gestión",
     enlaces: [
+      { titulo: "Tiendas", href: "/tiendas", icono: Store, fase: 6 },
       { titulo: "Cuentas y activos", href: "/cuentas", icono: Wallet, fase: 4 },
       { titulo: "Notas", href: "/notas", icono: StickyNote, fase: 4 },
       { titulo: "Categorías", href: "/categorias", icono: Tags, fase: 1 },

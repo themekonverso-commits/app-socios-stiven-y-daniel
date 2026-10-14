@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -165,6 +165,7 @@ export type Database = {
           periodo_hasta: string
           plataforma: string
           referencia: string | null
+          tienda_id: string
         }
         Insert: {
           comisiones?: number
@@ -184,6 +185,7 @@ export type Database = {
           periodo_hasta: string
           plataforma?: string
           referencia?: string | null
+          tienda_id?: string
         }
         Update: {
           comisiones?: number
@@ -203,6 +205,7 @@ export type Database = {
           periodo_hasta?: string
           plataforma?: string
           referencia?: string | null
+          tienda_id?: string
         }
         Relationships: [
           {
@@ -261,6 +264,13 @@ export type Database = {
             referencedRelation: "vw_libro_gestoria"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cobros_pasarela_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       cuentas_activos: {
@@ -278,6 +288,7 @@ export type Database = {
           nombre: string
           notas: string | null
           periodicidad: string | null
+          tienda_id: string | null
           tipo: string
           titular_id: string | null
           ultimo_pago: string | null
@@ -298,6 +309,7 @@ export type Database = {
           nombre: string
           notas?: string | null
           periodicidad?: string | null
+          tienda_id?: string | null
           tipo: string
           titular_id?: string | null
           ultimo_pago?: string | null
@@ -318,6 +330,7 @@ export type Database = {
           nombre?: string
           notas?: string | null
           periodicidad?: string | null
+          tienda_id?: string | null
           tipo?: string
           titular_id?: string | null
           ultimo_pago?: string | null
@@ -354,6 +367,13 @@ export type Database = {
             referencedColumns: ["socio_id"]
           },
           {
+            foreignKeyName: "cuentas_activos_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "cuentas_activos_titular_id_fkey"
             columns: ["titular_id"]
             isOneToOne: false
@@ -380,6 +400,7 @@ export type Database = {
           importe_total_eur: number
           nombre_archivo: string
           origen: string | null
+          tienda_id: string
         }
         Insert: {
           created_at?: string | null
@@ -391,6 +412,7 @@ export type Database = {
           importe_total_eur?: number
           nombre_archivo: string
           origen?: string | null
+          tienda_id?: string
         }
         Update: {
           created_at?: string | null
@@ -402,6 +424,7 @@ export type Database = {
           importe_total_eur?: number
           nombre_archivo?: string
           origen?: string | null
+          tienda_id?: string
         }
         Relationships: [
           {
@@ -417,6 +440,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_anticipos_socio"
             referencedColumns: ["socio_id"]
+          },
+          {
+            foreignKeyName: "importaciones_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -455,6 +485,7 @@ export type Database = {
           id: string
           nombre: string
           origen: string | null
+          tienda_id: string
         }
         Insert: {
           config?: Json
@@ -463,6 +494,7 @@ export type Database = {
           id?: string
           nombre: string
           origen?: string | null
+          tienda_id?: string
         }
         Update: {
           config?: Json
@@ -471,6 +503,7 @@ export type Database = {
           id?: string
           nombre?: string
           origen?: string | null
+          tienda_id?: string
         }
         Relationships: [
           {
@@ -486,6 +519,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_anticipos_socio"
             referencedColumns: ["socio_id"]
+          },
+          {
+            foreignKeyName: "mapeos_importacion_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -508,12 +548,14 @@ export type Database = {
           impresiones: number | null
           iva_importe: number
           iva_tipo: number
+          medio_pago: string | null
           metodo_cobro: string | null
           notas: string | null
           num_pedidos: number | null
           plataforma: string | null
           reembolsado: boolean
           tasa_cambio: number
+          tienda_id: string | null
           tipo: string
           total: number
           total_eur: number
@@ -537,12 +579,14 @@ export type Database = {
           impresiones?: number | null
           iva_importe?: number
           iva_tipo?: number
+          medio_pago?: string | null
           metodo_cobro?: string | null
           notas?: string | null
           num_pedidos?: number | null
           plataforma?: string | null
           reembolsado?: boolean
           tasa_cambio?: number
+          tienda_id?: string | null
           tipo: string
           total: number
           total_eur: number
@@ -566,12 +610,14 @@ export type Database = {
           impresiones?: number | null
           iva_importe?: number
           iva_tipo?: number
+          medio_pago?: string | null
           metodo_cobro?: string | null
           notas?: string | null
           num_pedidos?: number | null
           plataforma?: string | null
           reembolsado?: boolean
           tasa_cambio?: number
+          tienda_id?: string | null
           tipo?: string
           total?: number
           total_eur?: number
@@ -627,6 +673,13 @@ export type Database = {
             referencedRelation: "importaciones"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "movimientos_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       notas: {
@@ -639,6 +692,7 @@ export type Database = {
           etiquetas: string[]
           fijada: boolean | null
           id: string
+          tienda_id: string | null
           titulo: string
           updated_at: string | null
         }
@@ -651,6 +705,7 @@ export type Database = {
           etiquetas?: string[]
           fijada?: boolean | null
           id?: string
+          tienda_id?: string | null
           titulo: string
           updated_at?: string | null
         }
@@ -663,6 +718,7 @@ export type Database = {
           etiquetas?: string[]
           fijada?: boolean | null
           id?: string
+          tienda_id?: string | null
           titulo?: string
           updated_at?: string | null
         }
@@ -680,6 +736,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_anticipos_socio"
             referencedColumns: ["socio_id"]
+          },
+          {
+            foreignKeyName: "notas_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -822,6 +885,66 @@ export type Database = {
           },
         ]
       }
+      tiendas: {
+        Row: {
+          color: string
+          created_at: string
+          created_by: string
+          estado: string
+          fecha_lanzamiento: string | null
+          id: string
+          nombre: string
+          notas: string | null
+          objetivo_mes: Json
+          slug: string
+          updated_at: string
+          url_shopify: string | null
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          created_by?: string
+          estado?: string
+          fecha_lanzamiento?: string | null
+          id?: string
+          nombre: string
+          notas?: string | null
+          objetivo_mes?: Json
+          slug: string
+          updated_at?: string
+          url_shopify?: string | null
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          created_by?: string
+          estado?: string
+          fecha_lanzamiento?: string | null
+          id?: string
+          nombre?: string
+          notas?: string | null
+          objetivo_mes?: Json
+          slug?: string
+          updated_at?: string
+          url_shopify?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tiendas_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tiendas_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "vw_anticipos_socio"
+            referencedColumns: ["socio_id"]
+          },
+        ]
+      }
       tipos_cambio: {
         Row: {
           created_at: string | null
@@ -929,11 +1052,15 @@ export type Database = {
           concepto: string | null
           fecha: string | null
           id: string | null
+          medio_pago: string | null
           pendiente_eur: number | null
           reembolsado_eur: number | null
           socio: string | null
           socio_color: string | null
           socio_id: string | null
+          tienda: string | null
+          tienda_color: string | null
+          tienda_id: string | null
           total_eur: number | null
         }
         Relationships: [
@@ -950,6 +1077,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_anticipos_socio"
             referencedColumns: ["socio_id"]
+          },
+          {
+            foreignKeyName: "movimientos_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -991,6 +1125,7 @@ export type Database = {
           plataforma: string | null
           referencia: string | null
           solapados: Json | null
+          tienda_id: string | null
           ventas_registradas: number | null
         }
         Relationships: [
@@ -1050,6 +1185,13 @@ export type Database = {
             referencedRelation: "vw_libro_gestoria"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "cobros_pasarela_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
+          },
         ]
       }
       vw_cuentas_coste: {
@@ -1074,6 +1216,7 @@ export type Database = {
           periodicidad: string | null
           renueva_pronto: boolean | null
           tasa_aplicada: number | null
+          tienda_id: string | null
           tipo: string | null
           titular_color: string | null
           titular_id: string | null
@@ -1113,6 +1256,13 @@ export type Database = {
             referencedColumns: ["socio_id"]
           },
           {
+            foreignKeyName: "cuentas_activos_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "cuentas_activos_titular_id_fkey"
             columns: ["titular_id"]
             isOneToOne: false
@@ -1150,13 +1300,24 @@ export type Database = {
           id: string | null
           iva_importe: number | null
           iva_tipo: number | null
+          medio_pago: string | null
           notas: string | null
           tasa_cambio: number | null
+          tienda: string | null
+          tienda_id: string | null
           tipo: string | null
           total: number | null
           total_eur: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "movimientos_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vw_resumen_diario: {
         Row: {
@@ -1193,43 +1354,87 @@ export type Database = {
           fecha: string | null
           metodo_cobro: string | null
           pedidos: number | null
+          tienda_id: string | null
           ventas: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "movimientos_tienda_id_fkey"
+            columns: ["tienda_id"]
+            isOneToOne: false
+            referencedRelation: "tiendas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Functions: {
       es_socio_activo: { Args: never; Returns: boolean }
       fn_anular_reembolso: { Args: { p_reembolso: string }; Returns: undefined }
       fn_aprobar_cierre: { Args: { p_cierre: string }; Returns: Json }
-      fn_categorias_limite: { Args: never; Returns: string[] }
       fn_cobro_sincronizar_gasto: {
         Args: {
           p_autor: string
           p_categoria: string
           p_concepto: string
-          p_cuenta?: string
+          p_cuenta: string
           p_fecha: string
           p_importe: number
           p_movimiento: string
+          p_tienda: string
         }
         Returns: string
       }
-      fn_cobros_solapados: {
-        Args: {
-          p_desde: string
-          p_hasta: string
-          p_plataforma: string
-          p_referencia?: string
-        }
+      fn_cobros_solapados:
+        | {
+            Args: {
+              p_desde: string
+              p_hasta: string
+              p_plataforma: string
+              p_referencia?: string
+            }
+            Returns: {
+              fecha_cobro: string
+              id: string
+              importe_bruto: number
+              motivo: string
+              periodo_desde: string
+              periodo_hasta: string
+              referencia: string
+            }[]
+          }
+        | {
+            Args: {
+              p_desde: string
+              p_hasta: string
+              p_plataforma: string
+              p_referencia: string
+              p_tienda: string
+            }
+            Returns: {
+              fecha_cobro: string
+              id: string
+              importe_bruto: number
+              motivo: string
+              periodo_desde: string
+              periodo_hasta: string
+              referencia: string
+            }[]
+          }
+      fn_comparativa_tiendas: {
+        Args: { p_desde: string; p_hasta: string }
         Returns: {
-          fecha_cobro: string
-          id: string
-          importe_bruto: number
-          motivo: string
-          periodo_desde: string
-          periodo_hasta: string
-          referencia: string
+          beneficio: number
+          color: string
+          estado: string
+          gasto_ads: number
+          gastos: number
+          ingresos: number
+          margen: number
+          nombre: string
+          pedidos: number
+          roas: number
+          tienda_id: string
         }[]
       }
       fn_crear_cierre: {
@@ -1243,29 +1448,55 @@ export type Database = {
         Returns: string
       }
       fn_cuadre_bloque: { Args: { p_bloque: Json }; Returns: Json }
+      fn_cupo_tarjeta: { Args: never; Returns: Json }
       fn_deshacer_importacion: {
         Args: { p_importacion: string }
         Returns: Json
+      }
+      fn_en_ambito: {
+        Args: { p_fila: string; p_solo_general: boolean; p_tienda: string }
+        Returns: boolean
       }
       fn_en_fase_inicial: {
         Args: { p_fecha: string; p_inicio: string; p_meses: number }
         Returns: boolean
       }
       fn_estado_liquidacion: { Args: { p_fecha_corte: string }; Returns: Json }
+      fn_gastos_categoria: {
+        Args: { p_solo_general: boolean; p_tienda: string }
+        Returns: {
+          categoria: string
+          categoria_id: string
+          mes: string
+          total: number
+        }[]
+      }
       fn_importacion_bloqueada: {
         Args: { p_importacion: string }
         Returns: Json
       }
-      fn_importar_movimientos: {
-        Args: {
-          p_filas: Json
-          p_filas_omitidas?: number
-          p_filas_totales?: number
-          p_nombre_archivo: string
-          p_origen: string
-        }
-        Returns: Json
-      }
+      fn_importar_movimientos:
+        | {
+            Args: {
+              p_filas: Json
+              p_filas_omitidas?: number
+              p_filas_totales?: number
+              p_nombre_archivo: string
+              p_origen: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_filas: Json
+              p_filas_omitidas: number
+              p_filas_totales: number
+              p_nombre_archivo: string
+              p_origen: string
+              p_tienda: string
+            }
+            Returns: Json
+          }
       fn_liquidacion_calculo: { Args: { p_socios: Json }; Returns: Json }
       fn_liquidacion_final: { Args: never; Returns: Json }
       fn_marcar_reembolsado: {
@@ -1302,28 +1533,40 @@ export type Database = {
         }
         Returns: string
       }
-      fn_registrar_ventas_dia: {
-        Args: {
-          p_divisa: string
-          p_fecha: string
-          p_paypal_importe: number
-          p_paypal_pedidos: number
-          p_shopify_importe: number
-          p_shopify_pedidos: number
-          p_sobrescribir?: boolean
-          p_tasa: number
-        }
-        Returns: Json
-      }
-      fn_resumen_iva: {
-        Args: { p_desde: string; p_hasta: string }
-        Returns: Json
-      }
-      fn_resumen_periodo: {
-        Args: { p_desde: string; p_hasta: string }
+      fn_registrar_ventas_dia:
+        | {
+            Args: {
+              p_divisa: string
+              p_fecha: string
+              p_paypal_importe: number
+              p_paypal_pedidos: number
+              p_shopify_importe: number
+              p_shopify_pedidos: number
+              p_sobrescribir?: boolean
+              p_tasa: number
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_divisa: string
+              p_fecha: string
+              p_paypal_importe: number
+              p_paypal_pedidos: number
+              p_shopify_importe: number
+              p_shopify_pedidos: number
+              p_sobrescribir: boolean
+              p_tasa: number
+              p_tienda: string
+            }
+            Returns: Json
+          }
+      fn_resumen_diario: {
+        Args: { p_solo_general: boolean; p_tienda: string }
         Returns: {
           beneficio: number
           clicks: number
+          fecha: string
           gasto_ads: number
           gastos: number
           impresiones: number
@@ -1331,7 +1574,63 @@ export type Database = {
           pedidos: number
         }[]
       }
+      fn_resumen_iva:
+        | { Args: { p_desde: string; p_hasta: string }; Returns: Json }
+        | {
+            Args: {
+              p_desde: string
+              p_hasta: string
+              p_solo_general: boolean
+              p_tienda: string
+            }
+            Returns: Json
+          }
+      fn_resumen_mensual: {
+        Args: { p_solo_general: boolean; p_tienda: string }
+        Returns: {
+          beneficio: number
+          gasto_ads: number
+          gastos: number
+          ingresos: number
+          margen: number
+          mes: string
+          pedidos: number
+          roas: number
+          ticket_medio: number
+        }[]
+      }
+      fn_resumen_periodo:
+        | {
+            Args: { p_desde: string; p_hasta: string }
+            Returns: {
+              beneficio: number
+              clicks: number
+              gasto_ads: number
+              gastos: number
+              impresiones: number
+              ingresos: number
+              pedidos: number
+            }[]
+          }
+        | {
+            Args: {
+              p_desde: string
+              p_hasta: string
+              p_solo_general: boolean
+              p_tienda: string
+            }
+            Returns: {
+              beneficio: number
+              clicks: number
+              gasto_ads: number
+              gastos: number
+              impresiones: number
+              ingresos: number
+              pedidos: number
+            }[]
+          }
       fn_retirar_aprobacion: { Args: { p_cierre: string }; Returns: Json }
+      fn_socio_tarjeta: { Args: never; Returns: string }
       fn_tesoreria: {
         Args: { p_fecha_corte?: string }
         Returns: {
@@ -1357,10 +1656,20 @@ export type Database = {
           ventas_shopify: number
         }[]
       }
-      fn_ventas_registradas: {
-        Args: { p_desde: string; p_hasta: string; p_metodo?: string }
-        Returns: number
-      }
+      fn_ventas_registradas:
+        | {
+            Args: { p_desde: string; p_hasta: string; p_metodo?: string }
+            Returns: number
+          }
+        | {
+            Args: {
+              p_desde: string
+              p_hasta: string
+              p_metodo: string
+              p_tienda: string
+            }
+            Returns: number
+          }
     }
     Enums: {
       [_ in never]: never

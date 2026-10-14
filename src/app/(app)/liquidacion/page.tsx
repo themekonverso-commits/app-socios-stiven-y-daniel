@@ -42,6 +42,7 @@ export default async function PaginaLiquidacion({
   return (
     <div className="flex flex-col gap-5">
       <EncabezadoPagina
+        alcance="global"
         titulo="Liquidación"
         descripcion="Quién ha puesto qué, qué se debe y cuándo se puede repartir."
         acciones={

@@ -7,6 +7,7 @@ import { Search } from "lucide-react";
 
 import { NAVEGACION, esRutaActiva } from "@/lib/navegacion";
 import { cn } from "@/lib/utils";
+import { useHrefConTienda } from "@/components/tiendas/proveedor-tiendas";
 
 /**
  * Navegación de la sidebar. Es la misma en escritorio y dentro del drawer
@@ -19,6 +20,8 @@ export function NavegacionSidebar({
   alNavegar?: () => void;
 }) {
   const pathname = usePathname();
+  // Los enlaces llevan ?tienda=: así no hace falta que el middleware redirija.
+  const conTienda = useHrefConTienda();
   const [consulta, setConsulta] = useState("");
 
   const grupos = useMemo(() => {
@@ -77,7 +80,7 @@ export function NavegacionSidebar({
                 return (
                   <li key={enlace.href}>
                     <Link
-                      href={enlace.href}
+                      href={conTienda(enlace.href)}
                       onClick={alNavegar}
                       aria-current={activo ? "page" : undefined}
                       className={cn(

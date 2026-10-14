@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { NAVEGACION_MOVIL, esRutaActiva } from "@/lib/navegacion";
 import { cn } from "@/lib/utils";
+import { useHrefConTienda } from "@/components/tiendas/proveedor-tiendas";
 
 /**
  * Barra inferior de móvil con los cuatro destinos principales. Se oculta a
@@ -12,6 +13,8 @@ import { cn } from "@/lib/utils";
  */
 export function NavegacionInferior() {
   const pathname = usePathname();
+  // Los enlaces llevan ?tienda=: así no hace falta que el middleware redirija.
+  const conTienda = useHrefConTienda();
 
   return (
     <nav
@@ -26,7 +29,7 @@ export function NavegacionInferior() {
           return (
             <li key={enlace.href}>
               <Link
-                href={enlace.href}
+                href={conTienda(enlace.href)}
                 aria-current={activo ? "page" : undefined}
                 className={cn(
                   "flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[11px] font-medium transition-colors",

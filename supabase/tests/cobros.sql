@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Tests de cobros de la pasarela y saldo en banco (migración 0015, al día con la 0017)
+-- Tests de cobros de la pasarela y saldo en banco (migración 0015, al día con la 0019)
 --
 -- CÓMO EJECUTARLOS
 --   Pega el archivo entero en el SQL Editor de Supabase y pulsa Run. Devuelve
@@ -9,6 +9,8 @@
 --   Todo va dentro de un BEGIN … ROLLBACK. Las fechas son de 2030 para no
 --   mezclarse con datos reales, y las cifras del saldo se miden POR
 --   DIFERENCIA contra la foto de antes: la base real ya tiene movimientos.
+--   Desde la 0018 cada cobro y cada venta es de una tienda: el archivo crea
+--   la suya (slug test-cobros) dentro de la misma transacción.
 --
 -- Las escrituras se hacen en la piel de un socio (`set local role
 -- authenticated` + `request.jwt.claims`), igual que desde la aplicación: así
@@ -29,7 +31,8 @@ create temporary table _ctx (
   socio_a   uuid,
   socio_b   uuid,
   cat_ads   uuid,
-  cat_venta uuid
+  cat_venta uuid,
+  tienda    uuid
 ) on commit drop;
 
 insert into _ctx
@@ -40,6 +43,14 @@ select
   (select id from public.categorias where nombre = 'Ventas Shopify' and tipo = 'ingreso')
 from public.profiles p
 where p.activo = true;
+
+-- La tienda de pruebas (0018): ventas, cobros y movimientos van a ella.
+with t as (
+  insert into public.tiendas (nombre, slug, created_by)
+  select 'TEST tienda cobros', 'test-cobros', socio_a from _ctx
+  returning id
+)
+update _ctx set tienda = (select id from t);
 
 grant all on _resultados, _ctx to authenticated;
 
@@ -67,7 +78,8 @@ begin
 end;
 $$;
 
--- Un movimiento mínimo, firmado por quien esté suplantado.
+-- Un movimiento mínimo de la tienda de pruebas, firmado por quien esté
+-- suplantado.
 create or replace function pg_temp.mov(
   p_tipo text, p_fecha date, p_categoria uuid, p_importe numeric,
   p_autor uuid, p_anticipado uuid default null
@@ -80,10 +92,11 @@ begin
   insert into public.movimientos (
     tipo, fecha, concepto, categoria_id, divisa, base_imponible, iva_tipo,
     iva_importe, total, tasa_cambio, total_eur, base_eur, anticipado_por,
-    created_by)
+    tienda_id, created_by)
   values (
     p_tipo, p_fecha, 'TEST cobros', p_categoria, 'EUR', p_importe, 0,
-    0, p_importe, 1, p_importe, p_importe, p_anticipado, p_autor)
+    0, p_importe, 1, p_importe, p_importe, p_anticipado,
+    (select tienda from _ctx), p_autor)
   returning id into v_id;
   return v_id;
 end;
@@ -106,9 +119,9 @@ begin
 
   perform pg_temp.suplantar(c.socio_a);
   insert into public.cobros_pasarela (
-    fecha_cobro, periodo_desde, periodo_hasta,
+    tienda_id, fecha_cobro, periodo_desde, periodo_hasta,
     importe_bruto, comisiones, importe_neto, referencia)
-  values ('2030-03-05', '2030-03-01', '2030-03-03', 320.00, 9.60, 310.40, 'TEST-1')
+  values (c.tienda, '2030-03-05', '2030-03-01', '2030-03-03', 320.00, 9.60, 310.40, 'TEST-1')
   returning * into v_cobro;
   perform pg_temp.volver();
 
@@ -146,9 +159,9 @@ begin
   begin
     perform pg_temp.suplantar(c.socio_a);
     insert into public.cobros_pasarela (
-      fecha_cobro, periodo_desde, periodo_hasta,
+      tienda_id, fecha_cobro, periodo_desde, periodo_hasta,
       importe_bruto, comisiones, importe_neto)
-    values ('2030-03-06', '2030-03-01', '2030-03-03', 320.00, 9.60, 312.00);
+    values (c.tienda, '2030-03-06', '2030-03-01', '2030-03-03', 320.00, 9.60, 312.00);
   exception when check_violation then
     v_error := sqlerrm;
   end;
@@ -176,9 +189,9 @@ begin
 
   perform pg_temp.suplantar(c.socio_a);
   insert into public.cobros_pasarela (
-    fecha_cobro, periodo_desde, periodo_hasta,
+    tienda_id, fecha_cobro, periodo_desde, periodo_hasta,
     importe_bruto, comisiones, devoluciones, otros_ajustes, importe_neto, referencia)
-  values ('2030-04-10', '2030-04-01', '2030-04-07', 500.00, 15.00, 40.00, 2.50, 447.50, 'TEST-3')
+  values (c.tienda, '2030-04-10', '2030-04-01', '2030-04-07', 500.00, 15.00, 40.00, 2.50, 447.50, 'TEST-3')
   returning * into v_cobro;
   perform pg_temp.volver();
 
@@ -295,9 +308,9 @@ begin
 
   perform pg_temp.suplantar(c.socio_a);
   insert into public.cobros_pasarela (
-    fecha_cobro, periodo_desde, periodo_hasta,
+    tienda_id, fecha_cobro, periodo_desde, periodo_hasta,
     importe_bruto, comisiones, devoluciones, importe_neto, referencia)
-  values ('2030-05-10', '2030-05-01', '2030-05-07', 200.00, 6.00, 20.00, 174.00, 'TEST-7')
+  values (c.tienda, '2030-05-10', '2030-05-01', '2030-05-07', 200.00, 6.00, 20.00, 174.00, 'TEST-7')
   returning * into v_cobro;
 
   delete from public.cobros_pasarela where id = v_cobro.id;
@@ -329,8 +342,8 @@ begin
   begin
     perform pg_temp.suplantar(c.socio_a);
     insert into public.cobros_pasarela (
-      fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto, referencia)
-    values ('2030-03-07', '2030-03-01', '2030-03-03', 320.00, 9.60, 310.40, 'TEST-1');
+      tienda_id, fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto, referencia)
+    values (c.tienda, '2030-03-07', '2030-03-01', '2030-03-03', 320.00, 9.60, 310.40, 'TEST-1');
   exception when unique_violation then
     v_error := sqlerrm;
   end;
@@ -376,8 +389,8 @@ begin
   perform pg_temp.suplantar(c.socio_a);
   -- Llega un payout de 300 − 9 = 291 €. Su comisión NO debe restar otra vez.
   insert into public.cobros_pasarela (
-    fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto)
-  values ('2030-06-05', '2030-06-01', '2030-06-03', 300.00, 9.00, 291.00);
+    tienda_id, fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto)
+  values (c.tienda, '2030-06-05', '2030-06-01', '2030-06-03', 300.00, 9.00, 291.00);
   -- Y se le devuelven al socio B sus 100 €
   perform public.fn_registrar_reembolso(
     c.socio_b, '2030-06-06', 100, 'transferencia', null,
@@ -424,8 +437,8 @@ begin
 
   perform pg_temp.suplantar(c.socio_a);
   insert into public.cobros_pasarela (
-    fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto)
-  values ('2030-07-04', '2030-07-01', '2030-07-01', 250.00, 7.50, 242.50);
+    tienda_id, fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto)
+  values (c.tienda, '2030-07-04', '2030-07-01', '2030-07-01', 250.00, 7.50, 242.50);
   perform pg_temp.volver();
   select pendiente_shopify into v_cobrado from public.fn_tesoreria(v_corte);
 
@@ -453,8 +466,8 @@ begin
   -- Fuera del periodo: no debe contar.
   perform pg_temp.mov('ingreso', '2030-08-04', c.cat_venta, 999, c.socio_a);
   insert into public.cobros_pasarela (
-    fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto, referencia)
-  values ('2030-08-05', '2030-08-01', '2030-08-03', 320.00, 9.60, 310.40, 'TEST-11');
+    tienda_id, fecha_cobro, periodo_desde, periodo_hasta, importe_bruto, comisiones, importe_neto, referencia)
+  values (c.tienda, '2030-08-05', '2030-08-01', '2030-08-03', 320.00, 9.60, 310.40, 'TEST-11');
   perform pg_temp.volver();
 
   select * into v from public.vw_cobros_conciliacion where referencia = 'TEST-11';

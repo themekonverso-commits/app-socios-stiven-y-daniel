@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Tests de permisos por autoría (migración 0012)
+-- Tests de permisos por autoría (migración 0012, al día con la 0019)
 --
 -- CÓMO EJECUTARLOS
 --   Pega el archivo entero en el SQL Editor de Supabase y pulsa Run. Devuelve
@@ -7,7 +7,8 @@
 --
 -- NO ESCRIBE NADA EN LA BASE DE DATOS.
 --   Todo va dentro de un BEGIN … ROLLBACK. La tabla de resultados es
---   TEMPORARY y muere con la transacción.
+--   TEMPORARY y muere con la transacción, igual que la tienda de pruebas
+--   (slug test-permisos) a la que van los movimientos desde la 0018.
 --
 -- CÓMO SE SUPLANTA A CADA SOCIO
 --   `set local role authenticated` deja de ser superusuario —el dueño de la
@@ -39,6 +40,7 @@ create temporary table _ctx (
   nombre_a  text,
   nombre_b  text,
   categoria uuid,
+  tienda    uuid,
   mov_a     uuid,
   mov_b     uuid,
   cuenta_a  uuid,
@@ -54,6 +56,15 @@ select
   (select id from public.categorias where tipo = 'gasto' limit 1)
 from public.profiles p
 where p.activo = true;
+
+-- La tienda de pruebas (0018). La crea el superusuario: la RLS de tiendas no
+-- es lo que se prueba aquí.
+with t as (
+  insert into public.tiendas (nombre, slug, created_by)
+  select 'TEST tienda permisos', 'test-permisos', socio_a from _ctx
+  returning id
+)
+update _ctx set tienda = (select id from t);
 
 
 -- ───────────────────────────────────────────────────────────────────────────
@@ -100,9 +111,9 @@ begin
     insert into public.movimientos (
       tipo, fecha, concepto, categoria_id, divisa,
       base_imponible, iva_tipo, iva_importe, total,
-      tasa_cambio, total_eur, base_eur, anticipado_por, created_by)
+      tasa_cambio, total_eur, base_eur, anticipado_por, tienda_id, created_by)
     values ('gasto', '1991-01-01', 'TEST de A', c.categoria, 'EUR',
-            100, 0, 0, 100, 1, 100, 100, c.socio_a, c.socio_a)
+            100, 0, 0, 100, 1, 100, 100, c.socio_a, c.tienda, c.socio_a)
     returning id into v_id;
     perform pg_temp.volver();
   exception when others then
@@ -123,9 +134,9 @@ begin
     insert into public.movimientos (
       tipo, fecha, concepto, categoria_id, divisa,
       base_imponible, iva_tipo, iva_importe, total,
-      tasa_cambio, total_eur, base_eur, created_by)
+      tasa_cambio, total_eur, base_eur, tienda_id, created_by)
     values ('gasto', '1991-01-02', 'TEST de B', c.categoria, 'EUR',
-            200, 0, 0, 200, 1, 200, 200, c.socio_b)
+            200, 0, 0, 200, 1, 200, 200, c.tienda, c.socio_b)
     returning id into v_id;
     perform pg_temp.volver();
   exception when others then

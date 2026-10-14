@@ -5,6 +5,7 @@ import { NavegacionInferior } from "@/components/layout/navegacion-inferior";
 import { Sidebar } from "@/components/layout/sidebar";
 import type { UsuarioSidebar } from "@/components/layout/menu-usuario";
 import { ProveedorMovimientos } from "@/components/movimientos/proveedor-movimientos";
+import { ProveedorTiendas } from "@/components/tiendas/proveedor-tiendas";
 import {
   obtenerCategorias,
   obtenerConceptosFrecuentes,
@@ -12,6 +13,7 @@ import {
   obtenerUltimaTasa,
 } from "@/lib/consultas";
 import { crearClienteServidor } from "@/lib/supabase/server";
+import { obtenerAmbito, obtenerTiendas } from "@/lib/tiendas";
 
 /**
  * Estructura de la aplicación autenticada.
@@ -50,14 +52,17 @@ export default async function LayoutAplicacion({
   // Datos de referencia del formulario de movimiento. Se cargan aquí, una sola
   // vez, para que el botón «+ Nuevo movimiento» funcione desde cualquier
   // pantalla sin volver a pedirlos.
-  const [categorias, socios, conceptos, ultimaTasa] = await Promise.all([
+  const [categorias, socios, conceptos, ultimaTasa, tiendas, ambito] = await Promise.all([
     obtenerCategorias(),
     obtenerSocios(),
     obtenerConceptosFrecuentes(),
     obtenerUltimaTasa(),
+    obtenerTiendas(),
+    obtenerAmbito(),
   ]);
 
   return (
+    <ProveedorTiendas tiendas={tiendas} slugServidor={ambito.slug}>
     <ProveedorMovimientos
       categorias={categorias}
       socios={socios}
@@ -89,5 +94,6 @@ export default async function LayoutAplicacion({
       <NavegacionInferior />
       </div>
     </ProveedorMovimientos>
+    </ProveedorTiendas>
   );
 }

@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Tests de los dos métodos de cobro: Shopify Payments y PayPal (migración 0017)
+-- Tests de los dos métodos de cobro: Shopify Payments y PayPal (migración 0017, al día con la 0019)
 --
 -- CÓMO EJECUTARLOS
 --   Pega el archivo entero en el SQL Editor de Supabase y pulsa Run. Devuelve
@@ -8,7 +8,10 @@
 -- NO ESCRIBE NADA EN LA BASE DE DATOS.
 --   Todo va dentro de un BEGIN … ROLLBACK. Las fechas son de 2031 para no
 --   mezclarse con datos reales, y los saldos se miden POR DIFERENCIA contra la
---   foto de antes: la base real ya tiene movimientos.
+--   foto de antes: la base real ya tiene movimientos. Desde la 0018 cada
+--   venta y cada cobro es de una tienda: el archivo crea la suya (slug
+--   test-metodos-cobro) dentro de la misma transacción, y los gastos llevan
+--   medio_pago en lugar de la antigua cuenta_pago.
 --
 -- Las escrituras se hacen en la piel de un socio (`set local role
 -- authenticated` + `request.jwt.claims`), igual que desde la aplicación.
@@ -28,7 +31,8 @@ create temporary table _ctx (
   socio_a   uuid,
   socio_b   uuid,
   cat_ads   uuid,
-  cat_venta uuid
+  cat_venta uuid,
+  tienda    uuid
 ) on commit drop;
 
 insert into _ctx
@@ -39,6 +43,14 @@ select
   (select id from public.categorias where nombre = 'Ventas Shopify' and tipo = 'ingreso')
 from public.profiles p
 where p.activo = true;
+
+-- La tienda de pruebas (0018): ventas y cobros van a ella.
+with t as (
+  insert into public.tiendas (nombre, slug, created_by)
+  select 'TEST tienda métodos de cobro', 'test-metodos-cobro', socio_a from _ctx
+  returning id
+)
+update _ctx set tienda = (select id from t);
 
 grant all on _resultados, _ctx to authenticated;
 
@@ -59,27 +71,28 @@ begin
 end;
 $$;
 
--- Un gasto mínimo, firmado por quien esté suplantado.
+-- Un gasto mínimo, firmado por quien esté suplantado. Sin medio de pago, el
+-- trigger lo deduce: con socio, bolsillo; sin socio, banco.
 create or replace function pg_temp.gasto(
   p_fecha date, p_importe numeric, p_autor uuid,
-  p_anticipado uuid default null, p_cuenta text default null)
+  p_anticipado uuid default null, p_medio text default null)
 returns uuid language plpgsql as $$
 declare v_id uuid;
 begin
   insert into public.movimientos (
     tipo, fecha, concepto, categoria_id, divisa, base_imponible, iva_tipo,
     iva_importe, total, tasa_cambio, total_eur, base_eur, anticipado_por,
-    cuenta_pago, created_by)
+    medio_pago, created_by)
   values (
     'gasto', p_fecha, 'TEST métodos', (select cat_ads from _ctx), 'EUR',
     p_importe, 0, 0, p_importe, 1, p_importe, p_importe, p_anticipado,
-    p_cuenta, p_autor)
+    p_medio, p_autor)
   returning id into v_id;
   return v_id;
 end;
 $$;
 
--- Un cobro mínimo.
+-- Un cobro mínimo de la tienda de pruebas.
 create or replace function pg_temp.cobro(
   p_plataforma text, p_fecha date, p_desde date, p_hasta date,
   p_bruto numeric, p_comision numeric, p_ref text default null)
@@ -87,9 +100,9 @@ returns uuid language plpgsql as $$
 declare v_id uuid;
 begin
   insert into public.cobros_pasarela (
-    fecha_cobro, periodo_desde, periodo_hasta, plataforma,
+    tienda_id, fecha_cobro, periodo_desde, periodo_hasta, plataforma,
     importe_bruto, comisiones, importe_neto, referencia)
-  values (p_fecha, p_desde, p_hasta, p_plataforma,
+  values ((select tienda from _ctx), p_fecha, p_desde, p_hasta, p_plataforma,
     p_bruto, p_comision, p_bruto - p_comision, p_ref)
   returning id into v_id;
   return v_id;
@@ -99,7 +112,8 @@ $$;
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- 1 — Lo que ya había quedó asignado: ninguna venta sin método, ningún gasto
---     del negocio sin cuenta, ningún anticipo con cuenta
+--     sin medio de pago, ningún anticipo pagado por banco o PayPal (0018:
+--     medio_pago sustituye a cuenta_pago). Mira los datos reales.
 -- ───────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -113,14 +127,14 @@ begin
 
   select count(*) into v_gastos_sin
   from public.movimientos
-  where tipo = 'gasto' and anticipado_por is null and cuenta_pago is null;
+  where tipo = 'gasto' and medio_pago is null;
 
   select count(*) into v_anticipos_con
   from public.movimientos
-  where anticipado_por is not null and cuenta_pago is not null;
+  where anticipado_por is not null and medio_pago in ('banco', 'paypal');
 
   insert into _resultados values (
-    1, 'Relleno: ventas sin método · gastos del negocio sin cuenta · anticipos con cuenta',
+    1, 'Relleno: ventas sin método · gastos sin medio de pago · anticipos pagados por banco o PayPal',
     '0 · 0 · 0',
     concat_ws(' · ', v_ventas_sin, v_gastos_sin, v_anticipos_con),
     v_ventas_sin = 0 and v_gastos_sin = 0 and v_anticipos_con = 0);
@@ -139,7 +153,7 @@ begin
   select * into c from _ctx;
 
   perform pg_temp.suplantar(c.socio_a);
-  r := public.fn_registrar_ventas_dia('2031-03-03', 'EUR', 1, 100, 2, 40, 1);
+  r := public.fn_registrar_ventas_dia(c.tienda, '2031-03-03', 'EUR', 1, 100, 2, 40, 1, false);
   perform pg_temp.volver();
 
   select string_agg(m.metodo_cobro || ' ' || m.total_eur || ' ' || m.num_pedidos, ' · '
@@ -170,13 +184,13 @@ begin
 
   perform pg_temp.suplantar(c.socio_a);
   -- Como antes del cambio: todo en un único importe.
-  perform public.fn_registrar_ventas_dia('2031-03-10', 'EUR', 1, 140, 3, 0, 0);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-03-10', 'EUR', 1, 140, 3, 0, 0, false);
   -- Con el desglose nuevo.
-  perform public.fn_registrar_ventas_dia('2031-03-11', 'EUR', 1, 100, 2, 40, 1);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-03-11', 'EUR', 1, 100, 2, 40, 1, false);
   perform pg_temp.volver();
 
-  select * into a from public.fn_resumen_periodo('2031-03-10', '2031-03-10');
-  select * into b from public.fn_resumen_periodo('2031-03-11', '2031-03-11');
+  select * into a from public.fn_resumen_periodo('2031-03-10', '2031-03-10', c.tienda, false);
+  select * into b from public.fn_resumen_periodo('2031-03-11', '2031-03-11', c.tienda, false);
 
   insert into _resultados values (
     3, 'KPI iguales con y sin desglose: ingresos · pedidos · ticket medio',
@@ -203,11 +217,11 @@ begin
   select * into c from _ctx;
 
   perform pg_temp.suplantar(c.socio_a);
-  perform public.fn_registrar_ventas_dia('2031-03-17', 'EUR', 1, 100, 2, 40, 1);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-03-17', 'EUR', 1, 100, 2, 40, 1, false);
   select count(*) into v_antes from public.movimientos where fecha = '2031-03-17';
-  r := public.fn_registrar_ventas_dia('2031-03-17', 'EUR', 1, 120, 3, 0, 0);
+  r := public.fn_registrar_ventas_dia(c.tienda, '2031-03-17', 'EUR', 1, 120, 3, 0, 0, false);
   select count(*) into v_tras from public.movimientos where fecha = '2031-03-17';
-  perform public.fn_registrar_ventas_dia('2031-03-17', 'EUR', 1, 120, 3, 0, 0, true);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-03-17', 'EUR', 1, 120, 3, 0, 0, true);
   perform pg_temp.volver();
 
   select string_agg(metodo_cobro || ' ' || total_eur, ' · ') into v_final
@@ -234,12 +248,12 @@ begin
   select * into c from _ctx;
 
   perform pg_temp.suplantar(c.socio_a);
-  perform public.fn_registrar_ventas_dia('2031-03-18', 'EUR', 1, 50, 1, 0, 0);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-03-18', 'EUR', 1, 50, 1, 0, 0, false);
   perform pg_temp.volver();
 
   perform pg_temp.suplantar(c.socio_b);
   begin
-    perform public.fn_registrar_ventas_dia('2031-03-18', 'EUR', 1, 60, 1, 0, 0, true);
+    perform public.fn_registrar_ventas_dia(c.tienda, '2031-03-18', 'EUR', 1, 60, 1, 0, 0, true);
   exception when others then
     v_error := sqlerrm;
   end;
@@ -268,10 +282,10 @@ begin
   select * into c from _ctx;
 
   perform pg_temp.suplantar(c.socio_a);
-  perform public.fn_registrar_ventas_dia('2031-04-07', 'EUR', 1, 200, 4, 60, 2);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-04-07', 'EUR', 1, 200, 4, 60, 2, false);
   v_s := pg_temp.cobro('Shopify Payments', '2031-04-16', '2031-04-07', '2031-04-07', 200, 5.80, 'T6-S');
   v_p := pg_temp.cobro('PayPal',           '2031-04-07', '2031-04-07', '2031-04-07',  60, 2.39, 'T6-P');
-  select count(*) into v_n from public.fn_cobros_solapados('PayPal', '2031-04-07', '2031-04-07')
+  select count(*) into v_n from public.fn_cobros_solapados(c.tienda, 'PayPal', '2031-04-07', '2031-04-07', null)
    where id <> v_p;
   perform pg_temp.volver();
 
@@ -308,9 +322,9 @@ begin
 
   perform pg_temp.suplantar(c.socio_a);
   -- Lunes a miércoles: Shopify 100 + 80 + 0 = 180 · PayPal 30 + 0 + 45 = 75
-  perform public.fn_registrar_ventas_dia('2031-05-05', 'EUR', 1, 100, 2, 30, 1);
-  perform public.fn_registrar_ventas_dia('2031-05-06', 'EUR', 1,  80, 1,  0, 0);
-  perform public.fn_registrar_ventas_dia('2031-05-07', 'EUR', 1,   0, 0, 45, 1);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-05-05', 'EUR', 1, 100, 2, 30, 1, false);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-05-06', 'EUR', 1,  80, 1,  0, 0, false);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-05-07', 'EUR', 1,   0, 0, 45, 1, false);
   -- Payout semanal de Shopify y un cobro de PayPal que cubre los tres días
   v_s := pg_temp.cobro('Shopify Payments', '2031-05-14', '2031-05-05', '2031-05-11', 180, 5.22);
   v_p := pg_temp.cobro('PayPal',           '2031-05-07', '2031-05-05', '2031-05-07',  75, 3.00);
@@ -324,7 +338,7 @@ begin
                     order by fecha, metodo_cobro)
     into v_cob
   from public.vw_ventas_cobertura
-  where fecha between '2031-05-05' and '2031-05-07';
+  where tienda_id = c.tienda and fecha between '2031-05-05' and '2031-05-07';
 
   insert into _resultados values (
     7, 'Días mixtos: Shopify concilia 180 € (no 255) y PayPal 75 €; los cuatro tramos quedan cubiertos',
@@ -353,7 +367,7 @@ begin
   perform pg_temp.cobro('Shopify Payments', '2031-06-11', '2031-06-02', '2031-06-08', 10, 0, 'T8-A');
   v_2 := pg_temp.cobro('Shopify Payments', '2031-06-18', '2031-06-08', '2031-06-15', 10, 0, 'T8-B');
   select string_agg(motivo, ',') into v_ref
-  from public.fn_cobros_solapados('Shopify Payments', '2031-07-01', '2031-07-02', 'T8-A');
+  from public.fn_cobros_solapados(c.tienda, 'Shopify Payments', '2031-07-01', '2031-07-02', 'T8-A');
   perform pg_temp.volver();
 
   select * into s from public.vw_cobros_conciliacion where id = v_2;
@@ -382,7 +396,7 @@ begin
   v_c := pg_temp.cobro('PayPal', '2031-07-09', '2031-07-09', '2031-07-09', 50, 1.95);
   perform pg_temp.volver();
 
-  select m.concepto, m.total_eur, m.cuenta_pago, cat.nombre as categoria into g
+  select m.concepto, m.total_eur, m.medio_pago, cat.nombre as categoria into g
   from public.cobros_pasarela cp
   join public.movimientos m on m.id = cp.movimiento_comision_id
   join public.categorias cat on cat.id = m.categoria_id
@@ -448,7 +462,7 @@ declare
 begin
   select * into c from _ctx;
   select * into a from public.fn_tesoreria('2031-12-31');
-  select * into r_a from public.fn_resumen_periodo('2031-01-01', '2031-12-31');
+  select * into r_a from public.fn_resumen_periodo('2031-01-01', '2031-12-31', null, false);
 
   perform pg_temp.suplantar(c.socio_a);
   insert into public.traspasos_paypal (fecha, importe, comision, importe_neto)
@@ -462,7 +476,7 @@ begin
   returning id into v_t;
   perform pg_temp.volver();
   select * into d from public.fn_tesoreria('2031-12-31');
-  select * into r_d from public.fn_resumen_periodo('2031-01-01', '2031-12-31');
+  select * into r_d from public.fn_resumen_periodo('2031-01-01', '2031-12-31', null, false);
 
   select m.concepto, m.total_eur into g
   from public.traspasos_paypal t join public.movimientos m on m.id = t.movimiento_comision_id
@@ -504,7 +518,7 @@ begin
   perform pg_temp.suplantar(c.socio_a);
   perform pg_temp.gasto('2031-10-01', 20, c.socio_a, null, 'paypal');   -- PayPal −20
   perform pg_temp.gasto('2031-10-01', 30, c.socio_a, null, null);       -- banco −30 (por defecto)
-  v_ant := pg_temp.gasto('2031-10-01', 80, c.socio_a, c.socio_b, 'paypal'); -- anticipo: ninguna
+  v_ant := pg_temp.gasto('2031-10-01', 80, c.socio_a, c.socio_b, null);     -- anticipo: bolsillo, ninguna
   perform public.fn_registrar_reembolso(
     c.socio_b, '2031-10-05', 80, 'transferencia', null,
     jsonb_build_array(jsonb_build_object('movimiento_id', v_ant, 'importe_eur', 80)),
@@ -512,16 +526,16 @@ begin
   perform pg_temp.volver();
   select * into b from public.fn_tesoreria('2031-12-31');
 
-  select coalesce(cuenta_pago, 'ninguna') into v_cuenta from public.movimientos where id = v_ant;
+  select medio_pago into v_cuenta from public.movimientos where id = v_ant;
 
   insert into _resultados values (
-    12, 'Gasto PayPal 20 · gasto banco 30 · anticipo de socio 80 (sin cuenta) · reembolso 80 desde PayPal',
-    'banco -30.00 · PayPal -100.00 · anticipo ninguna',
+    12, 'Gasto PayPal 20 · gasto banco 30 · anticipo de socio 80 (de bolsillo, sin cuenta) · reembolso 80 desde PayPal',
+    'banco -30.00 · PayPal -100.00 · anticipo bolsillo',
     format('banco %s · PayPal %s · anticipo %s',
       to_char(b.saldo_banco - a.saldo_banco, 'SG990D00'),
       to_char(b.saldo_paypal - a.saldo_paypal, 'SG990D00'), v_cuenta),
     b.saldo_banco - a.saldo_banco = -30 and b.saldo_paypal - a.saldo_paypal = -100
-      and v_cuenta = 'ninguna');
+      and v_cuenta = 'bolsillo');
 end $$;
 
 
@@ -541,7 +555,7 @@ begin
   select * into a from public.fn_tesoreria('2031-12-31');
 
   perform pg_temp.suplantar(c.socio_a);
-  perform public.fn_registrar_ventas_dia('2031-11-03', 'EUR', 1, 70, 1, 25, 1);
+  perform public.fn_registrar_ventas_dia(c.tienda, '2031-11-03', 'EUR', 1, 70, 1, 25, 1, false);
   perform pg_temp.volver();
   select * into b from public.fn_tesoreria('2031-12-31');
 

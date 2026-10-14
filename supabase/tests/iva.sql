@@ -4,7 +4,10 @@
 -- Comprueba lo único que de verdad importa de este bloque: que la suma de los
 -- subtotales por tipo cuadre AL CÉNTIMO con el total general.
 --
--- Se ejecuta dentro de BEGIN … ROLLBACK: no confirma ni una fila.
+-- Se ejecuta dentro de BEGIN … ROLLBACK: no confirma ni una fila. Los datos
+-- van a una tienda de pruebas (slug test-iva) creada dentro de la misma
+-- transacción, y el resumen se pide solo para ella (0018: un ingreso siempre
+-- es de una tienda).
 -- Pega el archivo entero en el SQL Editor de Supabase y pulsa Run.
 -- ═══════════════════════════════════════════════════════════════════════════
 
@@ -18,6 +21,7 @@ declare
   v_socio uuid;
   v_cat_i uuid;
   v_cat_g uuid;
+  v_tienda uuid;
   v_res   jsonb;
   v_ci    jsonb;
   v_cg    jsonb;
@@ -28,6 +32,10 @@ begin
   select id into v_cat_i from public.categorias where tipo = 'ingreso' limit 1;
   select id into v_cat_g from public.categorias where tipo = 'gasto'   limit 1;
 
+  insert into public.tiendas (nombre, slug, created_by)
+  values ('TEST tienda iva', 'test-iva', v_socio)
+  returning id into v_tienda;
+
   -- Un juego de datos deliberadamente incómodo:
   --   · los cuatro tipos oficiales de IVA
   --   · importes que no redondean limpio (33,33 al 21 %)
@@ -37,17 +45,17 @@ begin
   insert into public.movimientos
     (tipo, fecha, concepto, categoria_id, divisa,
      base_imponible, iva_tipo, iva_importe, total,
-     tasa_cambio, total_eur, base_eur, created_by)
+     tasa_cambio, total_eur, base_eur, tienda_id, created_by)
   values
-    ('ingreso','1990-01-05','TEST venta 21',  v_cat_i,'EUR', 33.33, 21,  7.00,  40.33, 1,       40.33,  33.33, v_socio),
-    ('ingreso','1990-01-06','TEST venta 10',  v_cat_i,'EUR', 77.77, 10,  7.78,  85.55, 1,       85.55,  77.77, v_socio),
-    ('ingreso','1990-01-07','TEST venta 4',   v_cat_i,'EUR', 11.11,  4,  0.44,  11.55, 1,       11.55,  11.11, v_socio),
-    ('ingreso','1990-01-08','TEST venta 0',   v_cat_i,'EUR', 50.00,  0,  0.00,  50.00, 1,       50.00,  50.00, v_socio),
-    ('ingreso','1990-01-09','TEST venta USD', v_cat_i,'USD', 99.99, 21, 21.00, 120.99, 0.923456, 111.71, 92.32, v_socio),
-    ('gasto',  '1990-01-10','TEST gasto 21',  v_cat_g,'EUR', 66.66, 21, 14.00,  80.66, 1,       80.66,  66.66, v_socio),
-    ('gasto',  '1990-01-11','TEST gasto raro',v_cat_g,'EUR', 40.00, 5.5, 2.20,  42.20, 1,       42.20,  40.00, v_socio);
+    ('ingreso','1990-01-05','TEST venta 21',  v_cat_i,'EUR', 33.33, 21,  7.00,  40.33, 1,       40.33,  33.33, v_tienda, v_socio),
+    ('ingreso','1990-01-06','TEST venta 10',  v_cat_i,'EUR', 77.77, 10,  7.78,  85.55, 1,       85.55,  77.77, v_tienda, v_socio),
+    ('ingreso','1990-01-07','TEST venta 4',   v_cat_i,'EUR', 11.11,  4,  0.44,  11.55, 1,       11.55,  11.11, v_tienda, v_socio),
+    ('ingreso','1990-01-08','TEST venta 0',   v_cat_i,'EUR', 50.00,  0,  0.00,  50.00, 1,       50.00,  50.00, v_tienda, v_socio),
+    ('ingreso','1990-01-09','TEST venta USD', v_cat_i,'USD', 99.99, 21, 21.00, 120.99, 0.923456, 111.71, 92.32, v_tienda, v_socio),
+    ('gasto',  '1990-01-10','TEST gasto 21',  v_cat_g,'EUR', 66.66, 21, 14.00,  80.66, 1,       80.66,  66.66, v_tienda, v_socio),
+    ('gasto',  '1990-01-11','TEST gasto raro',v_cat_g,'EUR', 40.00, 5.5, 2.20,  42.20, 1,       42.20,  40.00, v_tienda, v_socio);
 
-  v_res := public.fn_resumen_iva('1990-01-01', '1990-01-31');
+  v_res := public.fn_resumen_iva('1990-01-01', '1990-01-31', v_tienda, false);
   v_ci  := v_res -> 'cuadre' -> 'ingresos';
   v_cg  := v_res -> 'cuadre' -> 'gastos';
 

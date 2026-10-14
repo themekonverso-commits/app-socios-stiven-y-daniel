@@ -1,3 +1,4 @@
+import { EtiquetaAmbito } from "@/components/tiendas/etiqueta-ambito";
 import { cn } from "@/lib/utils";
 
 export function EncabezadoPagina({
@@ -5,8 +6,14 @@ export function EncabezadoPagina({
   descripcion,
   acciones,
   className,
+  alcance = "tienda",
 }: {
   titulo: string;
+  /**
+   * «tienda»: la pantalla filtra por la tienda activa y su nombre va junto al
+   * título. «global»: es de la sociedad (liquidación, categorías, ajustes…).
+   */
+  alcance?: "tienda" | "global";
   descripcion?: string;
   acciones?: React.ReactNode;
   className?: string;
@@ -22,8 +29,9 @@ export function EncabezadoPagina({
       )}
     >
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight text-text-primary">
-          {titulo}
+        <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-2xl font-semibold tracking-tight text-text-primary">
+          <span>{titulo}</span>
+          {alcance === "tienda" ? <EtiquetaAmbito /> : null}
         </h1>
         {descripcion ? (
           <p className="mt-1 text-sm text-text-secondary">{descripcion}</p>
