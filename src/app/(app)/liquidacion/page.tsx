@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { FileText, TriangleAlert } from "lucide-react";
+import { FileText, Info, TriangleAlert } from "lucide-react";
 
 import { EncabezadoPagina } from "@/components/encabezado-pagina";
 import { SelectorPeriodo } from "@/components/dashboard/selector-periodo";
@@ -12,24 +12,29 @@ import { LimiteAportacion } from "@/components/liquidacion/limite-aportacion";
 import { ResumenFinal } from "@/components/liquidacion/resumen-final";
 import { TablaAnticipos } from "@/components/liquidacion/tabla-anticipos";
 import { TarjetaSocio } from "@/components/liquidacion/tarjeta-socio";
+import { WidgetTarjeta } from "@/components/tarjeta/widget-tarjeta";
 import {
   obtenerAnticiposPendientes,
   obtenerEstadoLiquidacion,
   obtenerHistorialReembolsos,
-  obtenerLimiteAportacion,
   obtenerLiquidacionFinal,
   obtenerMovimientosCupo,
   obtenerResumenSocios,
 } from "@/lib/consultas-liquidacion";
-import { escribirFiltros } from "@/lib/esquemas/filtros";
-import { hoyEnEspana, leerPeriodo, type Periodo } from "@/lib/periodo";
-import { format } from "date-fns";
+import { obtenerCupoTarjeta } from "@/lib/consultas-cupo";
+import { leerPeriodo, type Periodo } from "@/lib/periodo";
 
 export const metadata = { title: "Liquidación" };
 export const revalidate = 60;
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
 
+/**
+ * Liquidación entre socios. SIEMPRE global (0018): ignora el selector de
+ * tienda. Anticipos, reembolsos, prorrata, cierres y liquidación final suman
+ * todas las tiendas y General; las funciones SQL no reciben tienda. Cada
+ * anticipo enseña de qué tienda viene, solo para saberlo.
+ */
 export default async function PaginaLiquidacion({
   searchParams,
 }: {
@@ -59,6 +64,14 @@ export default async function PaginaLiquidacion({
         }
       />
 
+      <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text-secondary">
+        <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-text-muted" />
+        <span>
+          La liquidación es de la sociedad: suma todas las tiendas y General, y no
+          cambia con el selector de tienda.
+        </span>
+      </p>
+
       <Suspense key={`estado-${clave}`} fallback={<EsqueletoBloque alto={420} />}>
         <BloqueEstado periodo={periodo} />
       </Suspense>
@@ -74,49 +87,27 @@ export default async function PaginaLiquidacion({
   );
 }
 
-/** Secciones 1 y 2: estado por socio y límite de aportación. */
+/** Secciones 1 y 2: estado por socio y cupo de la tarjeta. */
 async function BloqueEstado({ periodo }: { periodo: Periodo }) {
   void periodo;
 
-  const [socios, liquidacion, { limite, avisoPct }] = await Promise.all([
+  // R6: el cupo mide lo pagado con la tarjeta (medio_pago = tarjeta_daniel),
+  // de todas las tiendas y de General. El widget lo mantiene en tiempo real.
+  const [socios, liquidacion, cupo, ultimos] = await Promise.all([
     obtenerResumenSocios(),
     obtenerLiquidacionFinal(),
-    obtenerLimiteAportacion(),
+    obtenerCupoTarjeta(),
+    obtenerMovimientosCupo(5),
   ]);
 
-  // R6: si no se ha designado socio, el cupo se vigila sobre quien más lo ha
-  // consumido —no sobre quien más ha adelantado en total—, que es a quien
-  // afecta la conversación de continuidad.
-  const socioLimite = limite.socio_id
-    ? socios.find((s) => s.socio_id === limite.socio_id)
-    : [...socios].sort((a, b) => b.anticipado_cupo - a.anticipado_cupo)[0];
-
-  const hayLimite = limite.importe > 0 && socioLimite !== undefined;
-
-  // Lo que ha ido consumiendo la tarjeta, con enlace al listado completo ya
-  // filtrado: ese socio, las categorías del cupo y desde el primer gasto.
-  const categoriaIds = limite.categorias.map((c) => c.id);
-  const cupo =
-    hayLimite && socioLimite
-      ? await obtenerMovimientosCupo(socioLimite.socio_id, categoriaIds, 5)
-      : null;
-  const enlaceCupo =
-    cupo && socioLimite && cupo.desde
-      ? `/movimientos?${escribirFiltros({
-          preset: "personalizado",
-          desde: cupo.desde,
-          hasta: format(hoyEnEspana(), "yyyy-MM-dd"),
-          categorias: categoriaIds,
-          anticipado: socioLimite.socio_id,
-        })}`
-      : null;
+  const hayCupo = cupo.limite > 0 || cupo.num_gastos > 0;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <TarjetaBloque
         titulo="Estado actual"
-        descripcion="Lo que cada socio ha puesto de su bolsillo."
-        className={hayLimite ? "lg:col-span-2" : "lg:col-span-3"}
+        descripcion="Lo que cada socio ha puesto, con la tarjeta o de su bolsillo, en todas las tiendas."
+        className={hayCupo ? "lg:col-span-2" : "lg:col-span-3"}
       >
         <div className="flex flex-col gap-4">
           {socios.length === 0 ? (
@@ -126,11 +117,7 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {socios.map((socio) => (
-                <TarjetaSocio
-                  key={socio.socio_id}
-                  socio={socio}
-                  ambito={limite.ambito}
-                />
+                <TarjetaSocio key={socio.socio_id} socio={socio} />
               ))}
             </div>
           )}
@@ -139,25 +126,20 @@ async function BloqueEstado({ periodo }: { periodo: Periodo }) {
         </div>
       </TarjetaBloque>
 
-      {hayLimite && socioLimite ? (
-        <TarjetaBloque
-          titulo="Límite de aportación"
-          descripcion={
-            limite.ambito
-              ? `Regla 6 del contrato. La tarjeta cubre ${limite.ambito}.`
-              : "Regla 6 del contrato."
-          }
-        >
-          <LimiteAportacion
-            socio={socioLimite}
-            limite={limite.importe}
-            avisoPct={avisoPct}
-            ambito={limite.ambito}
-            movimientos={cupo?.movimientos ?? []}
-            totalMovimientos={cupo?.total ?? 0}
-            enlaceMovimientos={enlaceCupo}
-          />
-        </TarjetaBloque>
+      {hayCupo ? (
+        <div className="flex flex-col gap-4">
+          <WidgetTarjeta inicial={cupo} />
+          <TarjetaBloque
+            titulo="Límite de aportación"
+            descripcion="Regla 6 del contrato. El cupo lo consume todo lo pagado con la tarjeta, sea de la tienda que sea."
+          >
+            <LimiteAportacion
+              socios={socios}
+              movimientos={ultimos.movimientos}
+              totalMovimientos={ultimos.total}
+            />
+          </TarjetaBloque>
+        </div>
       ) : null}
     </div>
   );

@@ -1,16 +1,32 @@
 import "server-only";
 
+import { format } from "date-fns";
+
 import { crearClienteServidor } from "@/lib/supabase/server";
+import { argsAmbito, filtrarPorAmbito, type Ambito } from "@/lib/ambito";
 import type { Periodo } from "@/lib/periodo";
-import { periodoAnterior } from "@/lib/periodo";
+import { hoyEnEspana, periodoAnterior } from "@/lib/periodo";
 import type { MovimientoConRelaciones } from "@/lib/tipos-db";
 
 /**
- * Lecturas del dashboard.
+ * Lecturas del dashboard y de /kpis.
  *
- * Todo agrega en Postgres —vistas `vw_*` y funciones `fn_*`—, siempre sobre
- * `total_eur`. Aquí no se suma nada fila a fila.
+ * Todo agrega en Postgres —funciones `fn_*` de la migración 0018—, siempre
+ * sobre `total_eur`. Aquí no se suma nada fila a fila.
+ *
+ * Casi todo va por ámbito (una tienda, «Todas» o solo «General»). Lo que es
+ * de la sociedad —la tesorería y el cupo de la tarjeta— no lo lleva: es el
+ * mismo número se mire desde donde se mire.
  */
+
+/**
+ * Argumentos de ámbito para las funciones SQL. Los tipos generados declaran
+ * `p_tienda: string`, pero la función admite null («todas» o «general»): sin
+ * esta conversión TypeScript no deja pasarlo.
+ */
+function args(ambito: Ambito): { p_tienda: string; p_solo_general: boolean } {
+  return argsAmbito(ambito) as { p_tienda: string; p_solo_general: boolean };
+}
 
 const n = (valor: unknown): number => {
   const numero = Number(valor);
@@ -44,16 +60,18 @@ const RESUMEN_VACIO: ResumenPeriodo = {
   clicks: 0,
 };
 
-/** Totales de un rango, calculados en la base de datos. */
+/** Totales de un rango en el ámbito, calculados en la base de datos. */
 export async function obtenerResumen(
   desde: string,
   hasta: string,
+  ambito: Ambito,
 ): Promise<ResumenPeriodo> {
   const supabase = await crearClienteServidor();
 
   const { data, error } = await supabase.rpc("fn_resumen_periodo", {
     p_desde: desde,
     p_hasta: hasta,
+    ...args(ambito),
   });
 
   if (error || !data || data.length === 0) return RESUMEN_VACIO;
@@ -75,7 +93,10 @@ export async function obtenerResumen(
  * `hayAnterior` distingue «no hubo movimientos» de «no hay histórico»: sin ese
  * matiz, un negocio nuevo vería caídas del 100 % que no existen.
  */
-export async function obtenerResumenComparado(periodo: Periodo): Promise<{
+export async function obtenerResumenComparado(
+  periodo: Periodo,
+  ambito: Ambito,
+): Promise<{
   actual: ResumenPeriodo;
   anterior: ResumenPeriodo;
   hayAnterior: boolean;
@@ -83,14 +104,84 @@ export async function obtenerResumenComparado(periodo: Periodo): Promise<{
   const previo = periodoAnterior(periodo);
 
   const [actual, anterior] = await Promise.all([
-    obtenerResumen(periodo.desde, periodo.hasta),
-    obtenerResumen(previo.desde, previo.hasta),
+    obtenerResumen(periodo.desde, periodo.hasta, ambito),
+    obtenerResumen(previo.desde, previo.hasta, ambito),
   ]);
 
   const hayAnterior =
     anterior.ingresos !== 0 || anterior.gastos !== 0 || anterior.pedidos !== 0;
 
   return { actual, anterior, hayAnterior };
+}
+
+/**
+ * Beneficio de la tienda desde siempre hasta hoy (ingresos − gastos de todos
+ * sus movimientos). OJO: es beneficio, no caja. La caja es de la sociedad.
+ */
+export async function obtenerBeneficioAcumulado(ambito: Ambito): Promise<number> {
+  // format y no toISOString: hoyEnEspana() es medianoche local y en UTC
+  // podría caer el día anterior.
+  const hoy = format(hoyEnEspana(), "yyyy-MM-dd");
+  const resumen = await obtenerResumen("2000-01-01", hoy, ambito);
+  return resumen.beneficio;
+}
+
+/** ¿Hay algún movimiento en el ámbito, de cualquier fecha? Para los estados vacíos. */
+export async function hayMovimientos(ambito: Ambito): Promise<boolean> {
+  const supabase = await crearClienteServidor();
+  const { count, error } = await filtrarPorAmbito(
+    supabase.from("movimientos").select("id", { count: "exact", head: true }),
+    ambito,
+  );
+  // Ante un error, mejor enseñar el dashboard (vacío) que un falso «empieza aquí».
+  if (error) return true;
+  return (count ?? 0) > 0;
+}
+
+/**
+ * Una fila por tienda y otra para General (tienda_id null), con las cifras
+ * del periodo. Lo calcula `fn_comparativa_tiendas`; las archivadas solo
+ * salen si tuvieron movimientos en el periodo.
+ */
+export type FilaComparativa = {
+  tiendaId: string | null;
+  nombre: string;
+  color: string | null;
+  estado: string | null;
+  ingresos: number;
+  gastos: number;
+  beneficio: number;
+  gastoAds: number;
+  roas: number | null;
+  margen: number | null;
+  pedidos: number;
+};
+
+export async function obtenerComparativaTiendas(
+  desde: string,
+  hasta: string,
+): Promise<FilaComparativa[]> {
+  const supabase = await crearClienteServidor();
+  const { data, error } = await supabase.rpc("fn_comparativa_tiendas", {
+    p_desde: desde,
+    p_hasta: hasta,
+  });
+
+  if (error || !data) return [];
+
+  return data.map((fila) => ({
+    tiendaId: fila.tienda_id ?? null,
+    nombre: fila.nombre ?? "",
+    color: fila.color ?? null,
+    estado: fila.estado ?? null,
+    ingresos: n(fila.ingresos),
+    gastos: n(fila.gastos),
+    beneficio: n(fila.beneficio),
+    gastoAds: n(fila.gasto_ads),
+    roas: nOrNull(fila.roas),
+    margen: nOrNull(fila.margen),
+    pedidos: n(fila.pedidos),
+  }));
 }
 
 /**
@@ -131,7 +222,10 @@ const TESORERIA_VACIA: Tesoreria = {
   pendienteTotal: 0,
 };
 
-/** Tesorería a día de hoy. No depende del selector de periodo. */
+/**
+ * Tesorería a día de hoy. Es de la sociedad: no depende del selector de
+ * periodo ni de la tienda.
+ */
 export async function obtenerTesoreria(): Promise<Tesoreria> {
   const supabase = await crearClienteServidor();
   const { data, error } = await supabase.rpc("fn_tesoreria");
@@ -164,16 +258,16 @@ export type PuntoDiario = {
   clicks: number;
 };
 
-/** Serie diaria del periodo, ya agregada por día en la vista. */
+/** Serie diaria del periodo en el ámbito, ya agregada por día en Postgres. */
 export async function obtenerSerieDiaria(
   desde: string,
   hasta: string,
+  ambito: Ambito,
 ): Promise<PuntoDiario[]> {
   const supabase = await crearClienteServidor();
 
   const { data, error } = await supabase
-    .from("vw_resumen_diario")
-    .select("*")
+    .rpc("fn_resumen_diario", args(ambito))
     .gte("fecha", desde)
     .lte("fecha", hasta)
     .order("fecha", { ascending: true });
@@ -204,8 +298,11 @@ export type FilaMensual = {
   ticketMedio: number | null;
 };
 
-/** Últimos N meses, para la tabla comparativa de /kpis. */
-export async function obtenerSerieMensual(meses = 12): Promise<FilaMensual[]> {
+/** Últimos N meses del ámbito, para la tabla comparativa de /kpis. */
+export async function obtenerSerieMensual(
+  meses: number,
+  ambito: Ambito,
+): Promise<FilaMensual[]> {
   const supabase = await crearClienteServidor();
 
   const desde = new Date();
@@ -214,8 +311,7 @@ export async function obtenerSerieMensual(meses = 12): Promise<FilaMensual[]> {
   const desdeIso = desde.toISOString().slice(0, 10);
 
   const { data, error } = await supabase
-    .from("vw_resumen_mensual")
-    .select("*")
+    .rpc("fn_resumen_mensual", args(ambito))
     .gte("mes", desdeIso)
     .order("mes", { ascending: true });
 
@@ -241,21 +337,21 @@ export type GastoCategoria = {
 };
 
 /**
- * Gastos por categoría en un rango.
+ * Gastos por categoría en un rango y un ámbito.
  *
- * La vista agrupa por mes, así que un periodo que cruza meses devuelve la misma
+ * La función agrupa por mes, así que un periodo que cruza meses devuelve la misma
  * categoría varias veces; se consolidan aquí. Son pocas filas (categorías ×
  * meses), no el conjunto de movimientos.
  */
 export async function obtenerGastosPorCategoria(
   desde: string,
   hasta: string,
+  ambito: Ambito,
 ): Promise<GastoCategoria[]> {
   const supabase = await crearClienteServidor();
 
   const { data, error } = await supabase
-    .from("vw_gastos_categoria")
-    .select("*")
+    .rpc("fn_gastos_categoria", args(ambito))
     .gte("mes", desde.slice(0, 8) + "01")
     .lte("mes", hasta)
     .order("total", { ascending: false });
@@ -288,9 +384,10 @@ export type GastoCategoriaMes = {
   total: number;
 };
 
-/** Gastos por categoría y mes, para las barras apiladas de /kpis. */
+/** Gastos por categoría y mes del ámbito, para las barras apiladas de /kpis. */
 export async function obtenerGastosCategoriaPorMes(
-  meses = 12,
+  meses: number,
+  ambito: Ambito,
 ): Promise<GastoCategoriaMes[]> {
   const supabase = await crearClienteServidor();
 
@@ -299,7 +396,7 @@ export async function obtenerGastosCategoriaPorMes(
   desde.setDate(1);
 
   const { data, error } = await supabase
-    .from("vw_gastos_categoria")
+    .rpc("fn_gastos_categoria", args(ambito))
     .select("mes, categoria, total")
     .gte("mes", desde.toISOString().slice(0, 10))
     .order("mes", { ascending: true });
@@ -327,16 +424,20 @@ export type GastoPlataforma = {
 export async function obtenerGastoPorPlataforma(
   desde: string,
   hasta: string,
+  ambito: Ambito,
 ): Promise<GastoPlataforma[]> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
-    .from("movimientos")
-    .select("plataforma, total_eur")
-    .eq("tipo", "gasto")
-    .not("plataforma", "is", null)
-    .gte("fecha", desde)
-    .lte("fecha", hasta);
+  const { data, error } = await filtrarPorAmbito(
+    supabase
+      .from("movimientos")
+      .select("plataforma, total_eur")
+      .eq("tipo", "gasto")
+      .not("plataforma", "is", null)
+      .gte("fecha", desde)
+      .lte("fecha", hasta),
+    ambito,
+  );
 
   if (error || !data) return [];
 
@@ -354,21 +455,25 @@ export async function obtenerGastoPorPlataforma(
     .sort((a, b) => b.gasto - a.gasto);
 }
 
-/** Los N movimientos más recientes del periodo. */
+/** Los N movimientos más recientes del periodo en el ámbito. */
 export async function obtenerUltimosMovimientos(
   desde: string,
   hasta: string,
-  limite = 8,
+  limite: number,
+  ambito: Ambito,
 ): Promise<MovimientoConRelaciones[]> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
-    .from("movimientos")
-    .select(
-      "*, categorias:categoria_id ( id, nombre, tipo, es_sistema ), anticipado:anticipado_por ( id, nombre, color )",
-    )
-    .gte("fecha", desde)
-    .lte("fecha", hasta)
+  const { data, error } = await filtrarPorAmbito(
+    supabase
+      .from("movimientos")
+      .select(
+        "*, categorias:categoria_id ( id, nombre, tipo, es_sistema ), anticipado:anticipado_por ( id, nombre, color )",
+      )
+      .gte("fecha", desde)
+      .lte("fecha", hasta),
+    ambito,
+  )
     .order("fecha", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(limite);
@@ -377,21 +482,25 @@ export async function obtenerUltimosMovimientos(
   return data as unknown as MovimientoConRelaciones[];
 }
 
-export type Objetivos = { facturacion: number; beneficio: number };
 export type SaldoInicial = { importe: number; fecha: string };
 
+/**
+ * Saldos de partida del banco y de PayPal (globales). Los objetivos
+ * mensuales ya no viven en `ajustes`: son de cada tienda (`tiendas.objetivo_mes`).
+ */
 export async function obtenerAjustes(): Promise<{
   saldoInicial: SaldoInicial;
   saldoInicialPaypal: SaldoInicial;
-  objetivos: Objetivos;
 }> {
   const supabase = await crearClienteServidor();
-  const { data } = await supabase.from("ajustes").select("clave, valor");
+  const { data } = await supabase
+    .from("ajustes")
+    .select("clave, valor")
+    .in("clave", ["saldo_inicial", "saldo_inicial_paypal"]);
 
   const porClave = new Map((data ?? []).map((fila) => [fila.clave, fila.valor]));
 
   const saldo = (porClave.get("saldo_inicial") ?? {}) as Record<string, unknown>;
-  const objetivo = (porClave.get("objetivo_mes") ?? {}) as Record<string, unknown>;
   const paypal = (porClave.get("saldo_inicial_paypal") ?? {}) as Record<string, unknown>;
 
   return {
@@ -412,22 +521,24 @@ export async function obtenerAjustes(): Promise<{
             ? saldo.fecha
             : new Date().toISOString().slice(0, 10),
     },
-    objetivos: {
-      facturacion: n(objetivo.facturacion),
-      beneficio: n(objetivo.beneficio),
-    },
   };
 }
 
-/** Fecha del último registro diario de ventas, para el semáforo de alertas. */
-export async function obtenerUltimaVenta(): Promise<string | null> {
+/**
+ * Fecha del último registro diario de ventas del ámbito, para el semáforo y
+ * para invitar a registrar el primer día en una tienda nueva.
+ */
+export async function obtenerUltimaVenta(ambito: Ambito): Promise<string | null> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
-    .from("movimientos")
-    .select("fecha")
-    .eq("tipo", "ingreso")
-    .not("num_pedidos", "is", null)
+  const { data, error } = await filtrarPorAmbito(
+    supabase
+      .from("movimientos")
+      .select("fecha")
+      .eq("tipo", "ingreso")
+      .not("num_pedidos", "is", null),
+    ambito,
+  )
     .order("fecha", { ascending: false })
     .limit(1)
     .maybeSingle();

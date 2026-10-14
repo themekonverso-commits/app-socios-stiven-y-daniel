@@ -21,7 +21,8 @@ import type { Resultado } from "@/app/acciones/movimientos";
  * misma transacción que el cobro. Aquí solo se valida y se escribe la fila.
  *
  * Desde la 0017 cada cobro es de Shopify Payments o de PayPal, y se concilia
- * solo con las ventas de su mismo método.
+ * solo con las ventas de su mismo método. Desde la 0018 además es de una
+ * tienda, y solo concilia (y solo busca duplicados) dentro de ella.
  */
 
 const UUID = z.uuid();
@@ -30,7 +31,7 @@ function traducirError(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     const mensaje = String((error as { message: unknown }).message);
     if (mensaje.includes("cobros_referencia_unica")) {
-      return "Ese payout ya está registrado: hay otro cobro con la misma referencia.";
+      return "Ese payout ya está registrado: hay otro cobro de la tienda con la misma referencia.";
     }
     if (mensaje.includes("traspasos_neto_cuadra") || mensaje.includes("traspasos_importes_validos")) {
       return "El traspaso no cuadra: la comisión tiene que ser menor que el importe.";
@@ -69,6 +70,27 @@ async function exigirSesion() {
 
 const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * La tienda tiene que existir y no estar archivada: los gastos que genera el
+ * cobro (comisión y devoluciones) van a su tienda, y una archivada no admite
+ * movimientos nuevos.
+ */
+async function comprobarTienda(
+  supabase: Awaited<ReturnType<typeof crearClienteServidor>>,
+  tiendaId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("tiendas")
+    .select("estado")
+    .eq("id", tiendaId)
+    .maybeSingle();
+  if (!data) return "Esa tienda no existe. Elige otra en el selector.";
+  if (data.estado === "archivada") {
+    return "La tienda está archivada: no admite cobros nuevos.";
+  }
+  return null;
+}
+
 function plataformaValida(valor: string): valor is PlataformaCobro {
   return (PLATAFORMAS_COBRO as readonly string[]).includes(valor);
 }
@@ -84,17 +106,20 @@ export type Solape = {
 };
 
 /**
- * Lo que el formulario enseña mientras se rellena: las ventas de /diario del
- * MISMO método en el periodo, y los cobros de la MISMA plataforma que se
- * solapan con él (o llevan la misma referencia). Un cobro de PayPal y uno de
- * Shopify del mismo periodo son normales y no aparecen aquí.
+ * Lo que el formulario enseña mientras se rellena: las ventas de /diario de
+ * la MISMA tienda y el MISMO método en el periodo, y los cobros de la misma
+ * tienda y plataforma que se solapan con él (o llevan la misma referencia).
+ * Un cobro de PayPal y uno de Shopify del mismo periodo son normales y no
+ * aparecen aquí; tampoco los de otra tienda.
  */
 export async function consultarVentasRegistradas(
+  tiendaId: string,
   desde: string,
   hasta: string,
   plataforma: string,
   referencia?: string | null,
 ): Promise<Resultado<{ ventas: number; solapados: Solape[] }>> {
+  if (!UUID.safeParse(tiendaId).success) return { ok: false, error: "Elige una tienda." };
   if (!FECHA_ISO.test(desde) || !FECHA_ISO.test(hasta) || desde > hasta) {
     return { ok: false, error: "Periodo no válido." };
   }
@@ -105,15 +130,18 @@ export async function consultarVentasRegistradas(
 
   const [ventas, solapes] = await Promise.all([
     supabase.rpc("fn_ventas_registradas", {
+      p_tienda: tiendaId,
       p_desde: desde,
       p_hasta: hasta,
       p_metodo: metodoDePlataforma(plataforma),
     }),
+    // Sin valores por defecto en SQL: la referencia vacía equivale a ninguna.
     supabase.rpc("fn_cobros_solapados", {
+      p_tienda: tiendaId,
       p_plataforma: plataforma,
       p_desde: desde,
       p_hasta: hasta,
-      p_referencia: referencia?.trim() || undefined,
+      p_referencia: referencia?.trim() ?? "",
     }),
   ]);
 
@@ -164,15 +192,19 @@ export async function crearCobro(
   const d = validacion.data;
   const neto = calcularNeto(d);
 
+  const tiendaMal = await comprobarTienda(supabase, d.tienda_id);
+  if (tiendaMal) return { ok: false, error: tiendaMal, campo: "tienda_id" };
+
   // Posible duplicado: solo dentro de la misma plataforma. Se avisa y se
   // guarda únicamente si el usuario lo confirma (una semana partida en dos
   // payouts es rara, pero existe).
   if (!d.confirmar_solape) {
     const { data: solapes, error: errorSolapes } = await supabase.rpc("fn_cobros_solapados", {
+      p_tienda: d.tienda_id,
       p_plataforma: d.plataforma,
       p_desde: d.periodo_desde,
       p_hasta: d.periodo_hasta,
-      p_referencia: d.referencia || undefined,
+      p_referencia: d.referencia?.trim() ?? "",
     });
     if (errorSolapes) return { ok: false, error: traducirError(errorSolapes) };
 
@@ -191,7 +223,7 @@ export async function crearCobro(
     if (lista.some((s) => s.motivo === "referencia")) {
       return {
         ok: false,
-        error: "Ese cobro ya está registrado: hay otro de la misma plataforma con la misma referencia.",
+        error: "Ese cobro ya está registrado: hay otro de la misma tienda y plataforma con la misma referencia.",
       };
     }
     if (lista.length > 0) return { ok: true, datos: { solapados: lista } };
@@ -200,6 +232,7 @@ export async function crearCobro(
   const { data, error } = await supabase
     .from("cobros_pasarela")
     .insert({
+      tienda_id: d.tienda_id,
       fecha_cobro: d.fecha_cobro,
       periodo_desde: d.periodo_desde,
       periodo_hasta: d.periodo_hasta,

@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import { ExternalLink } from "lucide-react";
 
 import { MenuCuenta } from "@/components/cuentas/menu-cuenta";
+import { useAmbito, useTiendas } from "@/components/tiendas/proveedor-tiendas";
+import { colorTienda, nombreTienda, type Tienda } from "@/lib/ambito";
 import { cn } from "@/lib/utils";
 import { formatearEuros, formatearFecha, mayusculaInicial } from "@/lib/formato";
 import { redondear2 } from "@/lib/dinero";
@@ -36,6 +38,24 @@ function EnlaceExterno({ url }: { url: string }) {
   );
 }
 
+/** Punto de color y nombre de la tienda de la cuenta (General si no tiene). */
+function EtiquetaTienda({ tiendaId, tiendas }: { tiendaId: string | null; tiendas: Tienda[] }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 truncate text-xs text-text-secondary">
+      <span
+        aria-hidden="true"
+        className="size-2 shrink-0 rounded-full"
+        style={{ backgroundColor: colorTienda(tiendaId, tiendas) }}
+      />
+      {nombreTienda(tiendaId, tiendas)}
+    </span>
+  );
+}
+
+/**
+ * Inventario en tarjetas o en tabla. En «Todas» cada cuenta dice de qué
+ * tienda es (o General); dentro de una tienda o de General, sobra.
+ */
 export function ListaCuentas({
   cuentas,
   vista,
@@ -43,6 +63,9 @@ export function ListaCuentas({
   cuentas: CuentaConCoste[];
   vista: "tarjetas" | "tabla";
 }) {
+  const tiendas = useTiendas();
+  const conTienda = useAmbito().tipo === "todas";
+
   const grupos = useMemo(() => {
     const mapa = new Map<string, CuentaConCoste[]>();
     for (const cuenta of cuentas) {
@@ -69,6 +92,7 @@ export function ListaCuentas({
           <thead>
             <tr className="border-b border-border bg-surface text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
               <th scope="col" className="px-3 py-2.5">Nombre</th>
+              {conTienda ? <th scope="col" className="px-3 py-2.5">Tienda</th> : null}
               <th scope="col" className="px-3 py-2.5">Tipo</th>
               <th scope="col" className="px-3 py-2.5">Correo</th>
               <th scope="col" className="px-3 py-2.5">Titular</th>
@@ -99,6 +123,11 @@ export function ListaCuentas({
                     {cuenta.url ? <EnlaceExterno url={String(cuenta.url)} /> : null}
                   </span>
                 </td>
+                {conTienda ? (
+                  <td className="max-w-[180px] px-3 py-2.5">
+                    <EtiquetaTienda tiendaId={cuenta.tienda_id} tiendas={tiendas} />
+                  </td>
+                ) : null}
                 <td className="px-3 py-2.5">
                   <span className="inline-flex rounded-md bg-surface-2 px-2 py-0.5 text-xs text-text-secondary">
                     {cuenta.tipo}
@@ -165,7 +194,7 @@ export function ListaCuentas({
 
           <tfoot>
             <tr className="border-t-2 border-border bg-surface font-semibold">
-              <td className="px-3 py-3 text-text-primary" colSpan={4}>
+              <td className="px-3 py-3 text-text-primary" colSpan={conTienda ? 5 : 4}>
                 Total · {cuentas.length} cuenta{cuentas.length === 1 ? "" : "s"}
               </td>
               <td className="cifra px-3 py-3 text-right text-text-primary">
@@ -231,6 +260,9 @@ export function ListaCuentas({
                     <span className="rounded-md bg-surface-2 px-2 py-0.5 text-xs text-text-secondary">
                       {cuenta.tipo}
                     </span>
+                    {conTienda ? (
+                      <EtiquetaTienda tiendaId={cuenta.tienda_id} tiendas={tiendas} />
+                    ) : null}
                     {cuenta.estado !== "activa" ? (
                       <span
                         className={cn(

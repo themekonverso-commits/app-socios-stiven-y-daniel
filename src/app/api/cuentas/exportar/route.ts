@@ -4,6 +4,8 @@ import { crearClienteServidor } from "@/lib/supabase/server";
 import { leerFiltrosCuentas } from "@/lib/esquemas/cuentas";
 import { obtenerCuentas } from "@/lib/consultas-cuentas";
 import { formatearFecha } from "@/lib/formato";
+import { NOMBRE_GENERAL, SLUG_TODAS, resolverAmbito } from "@/lib/ambito";
+import { obtenerAmbito, obtenerTiendas } from "@/lib/tiendas";
 
 /**
  * CSV del inventario, con los mismos filtros de la vista y el mismo formato
@@ -11,10 +13,14 @@ import { formatearFecha } from "@/lib/formato";
  *
  * No exporta ninguna credencial porque no existe ninguna: esto es un
  * inventario, no un gestor de contraseñas.
+ *
+ * Ámbito (0018): `?ambito=todas|general|<slug>` (sin él, la tienda recordada).
+ * Exporta las cuentas de ese ámbito, y siempre con la columna Tienda.
  */
 
 const COLUMNAS = [
   "Nombre",
+  "Tienda",
   "Tipo",
   "Correo asociado",
   "URL",
@@ -55,13 +61,19 @@ export async function GET(request: NextRequest) {
 
   const params = Object.fromEntries(request.nextUrl.searchParams.entries());
   const filtros = leerFiltrosCuentas(params);
-  const cuentas = await obtenerCuentas(filtros);
+  const tiendas = await obtenerTiendas();
+  const ambito = params.ambito
+    ? resolverAmbito(params.ambito, tiendas)
+    : await obtenerAmbito();
+  const cuentas = await obtenerCuentas(filtros, ambito);
+  const nombreDe = new Map(tiendas.map((t) => [t.id, t.nombre]));
 
   const lineas = [
     COLUMNAS.join(";"),
     ...cuentas.map((c) =>
       [
         celda(c.nombre),
+        celda(c.tienda_id ? (nombreDe.get(c.tienda_id) ?? "") : NOMBRE_GENERAL),
         celda(c.tipo),
         celda(c.email_asociado),
         celda(c.url),
@@ -82,7 +94,8 @@ export async function GET(request: NextRequest) {
   ];
 
   const contenido = `﻿${lineas.join("\r\n")}\r\n`;
-  const nombre = `cuentas_${new Date().toISOString().slice(0, 10)}.csv`;
+  const sufijo = ambito.slug === SLUG_TODAS ? "todas" : ambito.slug;
+  const nombre = `cuentas_${sufijo}_${new Date().toISOString().slice(0, 10)}.csv`;
 
   return new NextResponse(contenido, {
     headers: {

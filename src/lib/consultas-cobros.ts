@@ -4,10 +4,17 @@ import { crearClienteServidor } from "@/lib/supabase/server";
 import { porcentaje } from "@/lib/kpis";
 import { redondear2 } from "@/lib/dinero";
 import { metodoDePlataforma, type MetodoCobro, type PlataformaCobro } from "@/lib/metodos-cobro";
+import { filtrarPorAmbito, type Ambito } from "@/lib/ambito";
 
 /**
  * Lecturas de los cobros de la pasarela. La conciliación con /diario la
  * calcula `vw_cobros_conciliacion` en Postgres, no el navegador.
+ *
+ * Multi-tienda (0018): un cobro siempre es de una tienda y concilia solo con
+ * las ventas de esa tienda y de su método. Las lecturas por tienda reciben el
+ * ámbito como último parámetro (sin él, no filtran). En «General» no hay
+ * cobros: un ingreso nunca es de la sociedad. Los traspasos PayPal → Banco sí
+ * son de la sociedad y no se filtran nunca.
  */
 
 const n = (valor: unknown): number => {
@@ -17,6 +24,8 @@ const n = (valor: unknown): number => {
 
 export type CobroConciliado = {
   id: string;
+  /** Tienda del cobro. Nunca es null: un cobro siempre es de una tienda. */
+  tienda_id: string;
   fecha_cobro: string;
   periodo_desde: string;
   periodo_hasta: string;
@@ -42,12 +51,14 @@ export type CobroConciliado = {
 
 /**
  * Cobros que llegaron a su cuenta (banco o PayPal) en el rango, del más
- * reciente al más antiguo. Con `plataforma`, solo los de esa plataforma.
+ * reciente al más antiguo. Con `plataforma`, solo los de esa plataforma; con
+ * `ambito`, solo los de esa tienda.
  */
 export async function obtenerCobros(
   desde: string,
   hasta: string,
   plataforma?: PlataformaCobro,
+  ambito?: Ambito,
 ): Promise<{ cobros: CobroConciliado[]; error: string | null }> {
   const supabase = await crearClienteServidor();
   let consulta = supabase
@@ -56,6 +67,7 @@ export async function obtenerCobros(
     .gte("fecha_cobro", desde)
     .lte("fecha_cobro", hasta);
   if (plataforma) consulta = consulta.eq("plataforma", plataforma);
+  if (ambito) consulta = filtrarPorAmbito(consulta, ambito);
 
   const { data, error } = await consulta
     .order("fecha_cobro", { ascending: false })
@@ -65,6 +77,7 @@ export async function obtenerCobros(
 
   const cobros = (data ?? []).map((f) => ({
     id: f.id!,
+    tienda_id: f.tienda_id!,
     fecha_cobro: f.fecha_cobro!,
     periodo_desde: f.periodo_desde!,
     periodo_hasta: f.periodo_hasta!,
@@ -124,8 +137,9 @@ export function resumirCobros(cobros: CobroConciliado[]): ResumenCobros {
 export async function obtenerResumenCobros(
   desde: string,
   hasta: string,
+  ambito?: Ambito,
 ): Promise<ResumenCobros> {
-  const { cobros } = await obtenerCobros(desde, hasta);
+  const { cobros } = await obtenerCobros(desde, hasta, undefined, ambito);
   return resumirCobros(cobros);
 }
 
@@ -141,7 +155,10 @@ export type Traspaso = {
   autor_nombre: string | null;
 };
 
-/** Traspasos PayPal → Banco del rango, del más reciente al más antiguo. */
+/**
+ * Traspasos PayPal → Banco del rango, del más reciente al más antiguo. Son de
+ * la sociedad (PayPal y el banco no son de ninguna tienda): no llevan ámbito.
+ */
 export async function obtenerTraspasos(
   desde: string,
   hasta: string,

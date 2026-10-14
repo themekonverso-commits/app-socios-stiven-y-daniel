@@ -6,15 +6,22 @@ import { cn } from "@/lib/utils";
 import { formatearEuros, formatearFecha } from "@/lib/formato";
 import type { CuentaConCoste } from "@/lib/tipos-cuentas";
 
-/** Las 3 próximas renovaciones, al lado de los últimos movimientos. */
-export function ProximasRenovaciones({ cuentas }: { cuentas: CuentaConCoste[] }) {
+/** Las 3 próximas renovaciones del ámbito, al lado de los últimos movimientos. */
+export function ProximasRenovaciones({
+  cuentas,
+  enlace = "/cuentas",
+}: {
+  cuentas: CuentaConCoste[];
+  /** /cuentas con la tienda activa. */
+  enlace?: string;
+}) {
   return (
     <TarjetaBloque
       titulo="Próximas renovaciones"
       descripcion="Lo que se cobra pronto."
       accion={
         <Link
-          href="/cuentas"
+          href={enlace}
           className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-brand transition-colors hover:text-brand-hover"
         >
           Ver todas

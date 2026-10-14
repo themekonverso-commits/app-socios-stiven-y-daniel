@@ -15,17 +15,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { anularReembolso } from "@/app/acciones/liquidacion";
+import { colorTienda, nombreTienda } from "@/lib/ambito";
 import { cn } from "@/lib/utils";
 import { formatearEuros, formatearFecha, mayusculaInicial } from "@/lib/formato";
 import type { ReembolsoHistorial } from "@/lib/tipos-liquidacion";
 
+/**
+ * Reembolsos registrados. Un reembolso puede cubrir anticipos de varias
+ * tiendas y de General: la columna Tienda las enumera todas.
+ */
 export function HistorialReembolsos({
   reembolsos,
 }: {
   reembolsos: ReembolsoHistorial[];
 }) {
   const router = useRouter();
+  const tiendas = useTiendas();
   const [abierto, setAbierto] = useState(false);
   const [aAnular, setAAnular] = useState<ReembolsoHistorial | null>(null);
   const [anulando, iniciarAnulacion] = useTransition();
@@ -73,7 +80,7 @@ export function HistorialReembolsos({
           </p>
         ) : (
           <div className="overflow-x-auto border-t border-border">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
+            <table className="w-full min-w-[860px] border-collapse text-sm">
               <caption className="sr-only">Reembolsos registrados</caption>
               <thead>
                 <tr className="border-b border-border text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
@@ -82,6 +89,7 @@ export function HistorialReembolsos({
                   <th scope="col" className="px-4 py-2.5 text-right">Importe</th>
                   <th scope="col" className="px-4 py-2.5">Método</th>
                   <th scope="col" className="px-4 py-2.5 text-right">Anticipos</th>
+                  <th scope="col" className="px-4 py-2.5">Tienda</th>
                   <th scope="col" className="px-4 py-2.5">Registrado por</th>
                   <th scope="col" className="px-2 py-2.5">
                     <span className="sr-only">Acciones</span>
@@ -112,6 +120,27 @@ export function HistorialReembolsos({
                     </td>
                     <td className="cifra px-4 py-2.5 text-right text-text-secondary">
                       {reembolso.num_anticipos}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {reembolso.tiendas.length === 0 ? (
+                        <span className="text-text-muted">—</span>
+                      ) : (
+                        <ul className="flex flex-col gap-0.5">
+                          {reembolso.tiendas.map((id) => (
+                            <li
+                              key={id ?? "general"}
+                              className="flex items-center gap-1.5 text-text-secondary"
+                            >
+                              <span
+                                aria-hidden="true"
+                                style={{ backgroundColor: colorTienda(id, tiendas) }}
+                                className="size-2 shrink-0 rounded-full"
+                              />
+                              {nombreTienda(id, tiendas)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-text-secondary">
                       {reembolso.registrado_por}

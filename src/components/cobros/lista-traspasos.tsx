@@ -46,6 +46,9 @@ export function ListaTraspasos({
       <h2 id="traspasos-titulo" className="flex items-center gap-2 text-sm font-semibold text-text-primary">
         <ArrowRightLeft aria-hidden="true" className="size-4 text-brand" />
         Traspasos PayPal → Banco
+        <span className="text-xs font-normal text-text-muted">
+          · de la sociedad, salen en todas las tiendas
+        </span>
       </h2>
       <div className="overflow-hidden rounded-xl border border-border">
         <div className="overflow-x-auto">

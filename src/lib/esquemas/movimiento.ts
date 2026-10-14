@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CUENTAS_PAGO } from "@/lib/metodos-cobro";
+import { MEDIOS_PAGO } from "@/lib/medios-pago";
 
 /**
  * Esquemas de validación de movimientos.
@@ -63,13 +63,21 @@ export const esquemaMovimiento = z
     iva_importe: z.number().min(0),
     total: importePositivo,
 
-    anticipado_por: z.uuid().nullable(),
+    /**
+     * Tienda del movimiento. null = General / Sociedad (gastos compartidos).
+     * Un ingreso siempre es de una tienda: lo exige un CHECK de la 0018.
+     */
+    tienda_id: z.uuid("La tienda elegida no es válida.").nullable(),
 
     /**
-     * Solo en gastos pagados por el negocio (sin anticipo): de qué cuenta
-     * sale el dinero. La base de datos lo deja en NULL si hay anticipo.
+     * Solo en gastos: con qué se pagó (0018). Sustituye a la antigua
+     * «cuenta de pago». Con tarjeta, el socio lo fija la base de datos; con
+     * bolsillo hay que elegirlo; con banco o PayPal no hay socio.
      */
-    cuenta_pago: z.enum(CUENTAS_PAGO).nullable().optional(),
+    medio_pago: z.enum(MEDIOS_PAGO, { error: "Elige el medio de pago." }).nullable(),
+
+    /** Quién adelantó el dinero. Solo cuenta con «bolsillo». */
+    anticipado_por: z.uuid().nullable(),
 
     num_pedidos: z.number().int().min(0).nullable().optional(),
     plataforma: z.enum(PLATAFORMAS).nullable().optional(),
@@ -88,13 +96,27 @@ export const esquemaMovimiento = z
     { message: "Elige una categoría o crea una nueva.", path: ["categoria_id"] },
   )
   .refine(
-    // En gastos hay que saber quién puso el dinero: de eso vive la liquidación.
-    // O un socio de su bolsillo, o el negocio desde el banco o desde PayPal.
+    (datos) => datos.tipo === "gasto" || Boolean(datos.tienda_id),
+    {
+      message: "Un ingreso tiene que ser de una tienda: elige cuál.",
+      path: ["tienda_id"],
+    },
+  )
+  .refine(
+    // En gastos hay que saber con qué se pagó: de eso viven la liquidación,
+    // el cupo de la tarjeta y los saldos del banco y de PayPal.
+    (datos) => datos.tipo === "ingreso" || datos.medio_pago !== null,
+    { message: "Elige el medio de pago.", path: ["medio_pago"] },
+  )
+  .refine(
     (datos) =>
       datos.tipo === "ingreso" ||
-      Boolean(datos.anticipado_por) ||
-      Boolean(datos.cuenta_pago),
-    { message: "Indica quién pagó: un socio, el banco o PayPal.", path: ["anticipado_por"] },
+      datos.medio_pago !== "bolsillo" ||
+      Boolean(datos.anticipado_por),
+    {
+      message: "Elige qué socio lo pagó de su bolsillo.",
+      path: ["anticipado_por"],
+    },
   )
   .refine(
     (datos) => datos.divisa === "USD" || datos.tasa_cambio === 1,
@@ -122,6 +144,8 @@ const pedidos = z
 
 export const esquemaVentaDiaria = z
   .object({
+    /** Las ventas siempre son de una tienda concreta. */
+    tienda_id: z.uuid("Elige una tienda para registrar las ventas del día."),
     fecha: z.string().regex(FECHA_ISO, "La fecha no es válida."),
     shopify_importe: importeCero,
     shopify_pedidos: pedidos,

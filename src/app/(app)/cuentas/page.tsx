@@ -22,6 +22,7 @@ import {
 } from "@/lib/consultas-cuentas";
 import { obtenerCategorias, obtenerSocios, obtenerUltimaTasa } from "@/lib/consultas";
 import { obtenerUsuarioActual } from "@/lib/consultas-liquidacion";
+import { obtenerAmbito } from "@/lib/tiendas";
 
 export const metadata = { title: "Cuentas y activos" };
 
@@ -43,10 +44,13 @@ export default async function PaginaCuentas({
     vistaGuardada === "tabla" ? "tabla" : "tarjetas",
   );
 
+  // Multi-tienda (0018): la tienda activa, General (tienda_id NULL) o todas.
+  const ambito = await obtenerAmbito();
+
   const [cuentas, resumen, socios, categorias, tipos, usuarioId, tasa] =
     await Promise.all([
-      obtenerCuentas(filtros),
-      obtenerResumenCuentas(),
+      obtenerCuentas(filtros, ambito),
+      obtenerResumenCuentas(ambito),
       obtenerSocios(),
       obtenerCategorias(),
       obtenerTiposUsados(),
@@ -94,8 +98,16 @@ export default async function PaginaCuentas({
           ) : (
             <EstadoVacio
               icono={CreditCard}
-              titulo="El inventario está vacío"
-              descripcion="Apunta aquí las plataformas, dominios y herramientas del negocio. El día que uno de los dos salga, o que vendáis la marca, este inventario es el activo."
+              titulo={
+                ambito.tipo === "todas" ? "El inventario está vacío" : "Ninguna cuenta en esta vista"
+              }
+              descripcion={
+                ambito.tipo === "todas"
+                  ? "Apunta aquí las plataformas, dominios y herramientas del negocio. El día que uno de los dos salga, o que vendáis la marca, este inventario es el activo."
+                  : ambito.tipo === "general"
+                    ? "Aquí van las cuentas compartidas por todas las tiendas, como Claude o Apimart. Las de cada tienda se ven al elegirla en el selector."
+                    : "Esta tienda todavía no tiene cuentas. Las compartidas por todas están en General / Sociedad."
+              }
               accion={<BotonNuevaCuenta />}
             />
           )

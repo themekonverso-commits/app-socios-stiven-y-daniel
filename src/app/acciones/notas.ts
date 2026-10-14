@@ -47,7 +47,17 @@ function limpiarEtiquetas(etiquetas: string[]): string[] {
 const SOLO_EL_AUTOR =
   "Esto lo creó el otro socio. Solo quien lo registró puede modificarlo o eliminarlo.";
 
-export async function crearNota(): Promise<Resultado<{ id: string }>> {
+/**
+ * Nota nueva y vacía. `tiendaId` es la tienda activa; null (en «Todas» o en
+ * «General») la deja en General.
+ */
+export async function crearNota(
+  tiendaId: string | null = null,
+): Promise<Resultado<{ id: string }>> {
+  if (tiendaId !== null && !UUID.safeParse(tiendaId).success) {
+    return { ok: false, error: "Tienda no válida." };
+  }
+
   const supabase = await crearClienteServidor();
   const {
     data: { user },
@@ -58,7 +68,13 @@ export async function crearNota(): Promise<Resultado<{ id: string }>> {
   // cualquiera que abre un bloc de notas.
   const { data, error } = await supabase
     .from("notas")
-    .insert({ titulo: "", contenido: "", etiquetas: [], created_by: user.id })
+    .insert({
+      titulo: "",
+      contenido: "",
+      etiquetas: [],
+      tienda_id: tiendaId,
+      created_by: user.id,
+    })
     .select("id")
     .single();
 
@@ -94,6 +110,8 @@ export async function guardarNota(
       color: datos.color ?? null,
       fijada: datos.fijada,
       archivada: datos.archivada,
+      // undefined: PostgREST no envía la columna y la nota conserva su tienda.
+      tienda_id: datos.tienda_id,
     })
     .eq("id", id)
     .select("updated_at")

@@ -19,7 +19,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAmbito, useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { eliminarCobro } from "@/app/acciones/cobros";
+import { colorTienda, nombreTienda } from "@/lib/ambito";
 import { conciliar, mensajeConciliacion } from "@/lib/cobros";
 import type { CobroConciliado } from "@/lib/consultas-cobros";
 import { formatearEuros, formatearFecha, formatearPorcentaje } from "@/lib/formato";
@@ -32,6 +34,8 @@ import { cn } from "@/lib/utils";
  * El descuadre se escribe entero en la fila, no solo con un icono: «faltan
  * 15,00 €» es lo que hay que ir a corregir, y el color nunca es el único
  * indicador.
+ *
+ * En «Todas» cada cobro dice de qué tienda es; dentro de una tienda sobra.
  */
 export function ListaCobros({
   cobros,
@@ -42,6 +46,8 @@ export function ListaCobros({
 }) {
   const [aBorrar, setABorrar] = useState<CobroConciliado | null>(null);
   const [borrando, iniciarBorrado] = useTransition();
+  const tiendas = useTiendas();
+  const conTienda = useAmbito().tipo !== "tienda";
 
   function borrar(cobro: CobroConciliado) {
     iniciarBorrado(async () => {
@@ -92,6 +98,16 @@ export function ListaCobros({
                         {cobro.plataforma}
                         {cobro.referencia ? ` · ${cobro.referencia}` : ""}
                       </span>
+                      {conTienda ? (
+                        <span className="mt-0.5 flex items-center gap-1.5 text-xs text-text-secondary">
+                          <span
+                            aria-hidden="true"
+                            className="size-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: colorTienda(cobro.tienda_id, tiendas) }}
+                          />
+                          {nombreTienda(cobro.tienda_id, tiendas)}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="cifra px-4 py-3 text-text-secondary">
                       {cobro.periodo_desde === cobro.periodo_hasta

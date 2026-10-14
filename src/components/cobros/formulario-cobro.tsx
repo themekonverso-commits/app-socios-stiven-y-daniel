@@ -30,6 +30,7 @@ import {
   prerrellenoShopify,
 } from "@/lib/cobros";
 import { PLATAFORMAS_COBRO, type PlataformaCobro } from "@/lib/metodos-cobro";
+import type { Tienda } from "@/lib/ambito";
 import { formatearEuros, formatearFecha } from "@/lib/formato";
 import { cn } from "@/lib/utils";
 
@@ -79,8 +80,12 @@ function periodoTexto(desde: string, hasta: string) {
  * El neto se calcula en vivo y es el que se guarda. En cuanto hay periodo se
  * enseñan ya las ventas de /diario de ESE método, y si hay otro cobro de la
  * misma plataforma que se solapa (posible duplicado).
+ *
+ * Siempre es de una tienda concreta (0018): la elige el panel, que no enseña
+ * este formulario en «Todas» ni en «General». Ventas y solapes se buscan solo
+ * dentro de esa tienda.
  */
-export function FormularioCobro() {
+export function FormularioCobro({ tienda }: { tienda: Tienda }) {
   const [plataforma, setPlataforma] = useState<PlataformaCobro>("Shopify Payments");
   const [fechaCobro, setFechaCobro] = useState(() => iso(prerrellenoShopify(new Date()).fecha));
   const [desde, setDesde] = useState(() => iso(prerrellenoShopify(new Date()).desde));
@@ -146,6 +151,7 @@ export function FormularioCobro() {
     let vigente = true;
     const temporizador = window.setTimeout(async () => {
       const resultado = await consultarVentasRegistradas(
+        tienda.id,
         periodoDesde,
         periodoHasta,
         plataforma,
@@ -159,7 +165,7 @@ export function FormularioCobro() {
       vigente = false;
       window.clearTimeout(temporizador);
     };
-  }, [periodoDesde, periodoHasta, periodoValido, plataforma, referencia]);
+  }, [tienda.id, periodoDesde, periodoHasta, periodoValido, plataforma, referencia]);
 
   const previa =
     bruto !== null && bruto > 0 && ventas !== null ? conciliar(bruto, ventas) : null;
@@ -185,6 +191,7 @@ export function FormularioCobro() {
 
     iniciarGuardado(async () => {
       const resultado = await crearCobro({
+        tienda_id: tienda.id,
         fecha_cobro: fechaCobro,
         periodo_desde: periodoDesde,
         periodo_hasta: periodoHasta,
@@ -235,7 +242,17 @@ export function FormularioCobro() {
         <p className="text-xs text-text-secondary">
           {esPaypal
             ? "Copia el detalle del cobro de PayPal. No crea ningún ingreso: esas ventas ya están en /diario. El neto queda en la cuenta de PayPal hasta que lo traspases al banco."
-            : "Copia el desglose del payout de Shopify. No crea ningún ingreso: esas ventas ya están en /diario. Solo genera los gastos de comisión y devoluciones."}
+            : "Copia el desglose del payout de Shopify. No crea ningún ingreso: esas ventas ya están en /diario. Solo genera los gastos de comisión y devoluciones."}{" "}
+          Se registra en{" "}
+          <span className="inline-flex items-center gap-1 font-medium text-text-primary">
+            <span
+              aria-hidden="true"
+              className="size-2 rounded-full"
+              style={{ backgroundColor: tienda.color }}
+            />
+            {tienda.nombre}
+          </span>
+          , y concilia solo con sus ventas.
         </p>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -435,7 +452,8 @@ export function FormularioCobro() {
               ¿Es un cobro distinto?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary">
-              Ya hay {confirmarSolape?.length === 1 ? "un cobro" : "cobros"} de {plataforma}{" "}
+              Ya hay {confirmarSolape?.length === 1 ? "un cobro" : "cobros"} de {plataforma} en{" "}
+              {tienda.nombre}{" "}
               que cubre{confirmarSolape?.length === 1 ? "" : "n"} parte de estos días:{" "}
               {confirmarSolape
                 ?.map(

@@ -3,6 +3,7 @@ import "server-only";
 import ExcelJS from "exceljs";
 
 import type { FilaLibro, ResumenIva } from "@/lib/consultas-gestoria";
+import { ETIQUETA_MEDIO, esMedioPago } from "@/lib/medios-pago";
 
 /**
  * Libro de ingresos y gastos en .xlsx, con el formato que espera una gestoría
@@ -17,6 +18,9 @@ import type { FilaLibro, ResumenIva } from "@/lib/consultas-gestoria";
  * Al pie de cada hoja van los subtotales POR TIPO DE IVA, que es lo que hace
  * falta para el modelo 303, y una línea de cuadre que compara esa suma con el
  * total general. Si algún día no cuadrara, sale escrito en la hoja.
+ *
+ * Multi-tienda (0018): cada fila dice de qué tienda es (o General) y, en los
+ * gastos, con qué se pagó. El ámbito exportado va en la cabecera de cada hoja.
  */
 
 const CABECERAS = [
@@ -24,6 +28,8 @@ const CABECERAS = [
   "Nº",
   "Concepto",
   "Categoría",
+  "Tienda",
+  "Medio de pago",
   "Base imponible",
   "% IVA",
   "Cuota IVA",
@@ -33,7 +39,7 @@ const CABECERAS = [
   "Total EUR",
 ];
 
-const ANCHOS = [12, 6, 38, 24, 15, 8, 13, 13, 8, 14, 14];
+const ANCHOS = [12, 6, 38, 24, 22, 18, 15, 8, 13, 13, 8, 14, 14];
 
 const FORMATO_EUR = '#,##0.00 "€"';
 const FORMATO_PCT = '0"%"';
@@ -69,6 +75,12 @@ function pintarCabecera(hoja: ExcelJS.Worksheet, titulo: string, periodo: string
   hoja.views = [{ state: "frozen", ySplit: 4 }];
 }
 
+/** «Tarjeta de Daniel», «Banco»… Vacío en los ingresos, que no llevan medio. */
+export function etiquetaMedio(medio: string | null): string {
+  if (!medio) return "";
+  return esMedioPago(medio) ? ETIQUETA_MEDIO[medio] : medio;
+}
+
 function pintarFilas(hoja: ExcelJS.Worksheet, filas: FilaLibro[]): number {
   let numero = 0;
   let fila = 5;
@@ -82,19 +94,21 @@ function pintarFilas(hoja: ExcelJS.Worksheet, filas: FilaLibro[]): number {
     f.getCell(2).value = numero;
     f.getCell(3).value = registro.concepto;
     f.getCell(4).value = registro.categoria;
-    f.getCell(5).value = Number(registro.base_imponible);
-    f.getCell(5).numFmt = FORMATO_EUR;
-    f.getCell(6).value = Number(registro.iva_tipo);
-    f.getCell(6).numFmt = FORMATO_PCT;
-    f.getCell(7).value = Number(registro.iva_importe);
+    f.getCell(5).value = registro.tienda;
+    f.getCell(6).value = etiquetaMedio(registro.medio_pago);
+    f.getCell(7).value = Number(registro.base_imponible);
     f.getCell(7).numFmt = FORMATO_EUR;
-    f.getCell(8).value = Number(registro.total);
-    f.getCell(8).numFmt = FORMATO_EUR;
-    f.getCell(9).value = registro.divisa;
-    f.getCell(10).value = Number(registro.tasa_cambio);
-    f.getCell(10).numFmt = "0.000000";
-    f.getCell(11).value = Number(registro.total_eur);
-    f.getCell(11).numFmt = FORMATO_EUR;
+    f.getCell(8).value = Number(registro.iva_tipo);
+    f.getCell(8).numFmt = FORMATO_PCT;
+    f.getCell(9).value = Number(registro.iva_importe);
+    f.getCell(9).numFmt = FORMATO_EUR;
+    f.getCell(10).value = Number(registro.total);
+    f.getCell(10).numFmt = FORMATO_EUR;
+    f.getCell(11).value = registro.divisa;
+    f.getCell(12).value = Number(registro.tasa_cambio);
+    f.getCell(12).numFmt = "0.000000";
+    f.getCell(13).value = Number(registro.total_eur);
+    f.getCell(13).numFmt = FORMATO_EUR;
 
     fila += 1;
   }
@@ -196,12 +210,14 @@ export async function generarLibroExcel(
   filas: FilaLibro[],
   resumen: ResumenIva,
   etiquetaPeriodo: string,
+  /** «Consolidado (sociedad)», «General / Sociedad (…)» o la tienda. */
+  nombreAmbito: string,
 ): Promise<Buffer> {
   const libro = new ExcelJS.Workbook();
   libro.creator = "Dashboard Socios";
   libro.created = new Date();
 
-  const periodo = `Periodo: ${etiquetaPeriodo} (${resumen.desde} a ${resumen.hasta})`;
+  const periodo = `Periodo: ${etiquetaPeriodo} (${resumen.desde} a ${resumen.hasta}) · Ámbito: ${nombreAmbito}`;
 
   // ── Hoja de ingresos ─────────────────────────────────────────────────────
   const ingresos = libro.addWorksheet("Ingresos");

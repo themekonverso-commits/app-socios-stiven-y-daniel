@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 
 import { MenuPeriodo } from "@/components/campos/menu-periodo";
@@ -17,14 +17,23 @@ import {
 /**
  * Selector de periodo global. Afecta a toda la pantalla y se guarda en la URL,
  * así que una vista se puede compartir y el botón «atrás» funciona.
+ *
+ * Solo toca los parámetros del periodo: la tienda (`?tienda=`) y el resto
+ * (`?reparto=1`…) se conservan al cambiarlo.
  */
 export function SelectorPeriodo({ periodo }: { periodo: Periodo }) {
   const router = useRouter();
   const pathname = usePathname();
+  const actuales = useSearchParams();
   const [pendiente, iniciarTransicion] = useTransition();
 
   function navegar(siguiente: Periodo) {
-    const query = escribirPeriodo(siguiente);
+    const params = new URLSearchParams(actuales.toString());
+    for (const clave of ["periodo", "desde", "hasta"]) params.delete(clave);
+    for (const [clave, valor] of new URLSearchParams(escribirPeriodo(siguiente))) {
+      params.set(clave, valor);
+    }
+    const query = params.toString();
     iniciarTransicion(() => {
       router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
     });

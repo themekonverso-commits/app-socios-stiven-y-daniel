@@ -14,9 +14,34 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CampoImporte } from "@/components/campos/campo-importe";
+import { CeldaTienda } from "@/components/liquidacion/celda-tienda";
 import { calcularProrrataAccion, registrarReembolsosProrrata } from "@/app/acciones/prorrata";
 import { formatearEuros } from "@/lib/formato";
-import type { ResumenSocio } from "@/lib/tipos-liquidacion";
+import type { AnticipoPendiente, ResumenSocio } from "@/lib/tipos-liquidacion";
+
+/**
+ * Qué anticipos cubriría el importe de cada socio: los suyos, del más antiguo
+ * al más reciente, que es lo que hace `registrarReembolsosProrrata` al
+ * guardar. Solo sirve para ENSEÑAR de qué tiendas son antes de confirmar; lo
+ * definitivo lo vuelve a calcular el servidor.
+ */
+function anticiposCubiertos(
+  anticipos: AnticipoPendiente[],
+  socioId: string,
+  importe: number,
+): { anticipo: AnticipoPendiente; aplicado: number }[] {
+  let restante = Math.round(importe * 100);
+  const lineas: { anticipo: AnticipoPendiente; aplicado: number }[] = [];
+  for (const anticipo of anticipos) {
+    if (restante <= 0) break;
+    if (anticipo.socio_id !== socioId) continue;
+    const aplicado = Math.min(Math.round(anticipo.pendiente_eur * 100), restante);
+    if (aplicado <= 0) continue;
+    lineas.push({ anticipo, aplicado: aplicado / 100 });
+    restante -= aplicado;
+  }
+  return lineas;
+}
 
 const iso = (fecha: Date) => format(fecha, "yyyy-MM-dd");
 
@@ -26,12 +51,18 @@ const iso = (fecha: Date) => format(fecha, "yyyy-MM-dd");
  * El cálculo lo hace fn_prorrata_reembolso en Postgres. Aquí solo se pide el
  * importe y se enseña el resultado: si la aritmética se hiciera en el
  * navegador, dos socios podrían ver cifras distintas.
+ *
+ * Es de la sociedad: lo pendiente suma todas las tiendas y General. Debajo de
+ * cada socio se ve qué anticipos cubre y de qué tienda es cada uno.
  */
 export function DialogoProrrata({
   socios,
+  anticipos,
   alTerminar,
 }: {
   socios: ResumenSocio[];
+  /** Pendientes, del más antiguo al más reciente (el orden de la tabla). */
+  anticipos: AnticipoPendiente[];
   alTerminar: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
@@ -145,22 +176,56 @@ export function DialogoProrrata({
                 <p className="text-xs font-medium text-text-primary">
                   Le corresponde a cada socio
                 </p>
-                <ul className="mt-2 flex flex-col gap-2">
-                  {Object.entries(reparto).map(([id, importe]) => (
-                    <li key={id} className="flex items-center gap-2 text-sm">
-                      <span
-                        aria-hidden="true"
-                        style={{ backgroundColor: colorDe(id) }}
-                        className="size-2.5 shrink-0 rounded-full"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-text-secondary">
-                        {nombreDe(id)}
-                      </span>
-                      <span className="cifra font-semibold text-text-primary">
-                        {formatearEuros(importe)}
-                      </span>
-                    </li>
-                  ))}
+                <ul className="mt-2 flex flex-col gap-3">
+                  {Object.entries(reparto).map(([id, importe]) => {
+                    const cubiertos = anticiposCubiertos(anticipos, id, importe);
+                    return (
+                      <li key={id} className="flex flex-col gap-1.5">
+                        <span className="flex items-center gap-2 text-sm">
+                          <span
+                            aria-hidden="true"
+                            style={{ backgroundColor: colorDe(id) }}
+                            className="size-2.5 shrink-0 rounded-full"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-text-secondary">
+                            {nombreDe(id)}
+                          </span>
+                          <span className="cifra font-semibold text-text-primary">
+                            {formatearEuros(importe)}
+                          </span>
+                        </span>
+                        {cubiertos.length > 0 ? (
+                          <table className="ml-4.5 text-xs">
+                            <caption className="sr-only">
+                              Anticipos de {nombreDe(id)} que cubre el reparto
+                            </caption>
+                            <thead>
+                              <tr className="text-left text-[11px] tracking-wide text-text-muted uppercase">
+                                <th scope="col" className="pb-0.5 font-medium">Concepto</th>
+                                <th scope="col" className="pb-0.5 font-medium">Tienda</th>
+                                <th scope="col" className="pb-0.5 text-right font-medium">Cubre</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cubiertos.map(({ anticipo, aplicado }) => (
+                                <tr key={anticipo.id}>
+                                  <td className="max-w-[120px] truncate py-0.5 pr-2 text-text-secondary">
+                                    {anticipo.concepto}
+                                  </td>
+                                  <td className="max-w-[110px] py-0.5 pr-2">
+                                    <CeldaTienda anticipo={anticipo} />
+                                  </td>
+                                  <td className="cifra py-0.5 text-right text-text-primary">
+                                    {formatearEuros(aplicado)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}

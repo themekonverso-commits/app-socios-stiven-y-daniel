@@ -20,7 +20,10 @@ function traducirError(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     const mensaje = String((error as { message: unknown }).message);
     if (mensaje.includes("violates foreign key")) {
-      return "La categoría o el socio seleccionados ya no existen.";
+      return "La tienda, la categoría o el socio seleccionados ya no existen.";
+    }
+    if (mensaje.includes("archivada")) {
+      return "La tienda de la cuenta está archivada: no admite gastos nuevos. Cambia la cuenta de tienda antes de registrar el pago.";
     }
     return mensaje;
   }
@@ -45,6 +48,7 @@ function normalizar(datos: z.infer<typeof esquemaCuenta>) {
     email_asociado: datos.email_asociado?.trim() || null,
     url: datos.url?.trim() || null,
     titular_id: datos.titular_id ?? null,
+    tienda_id: datos.tienda_id ?? null,
     coste: gratuito ? null : (datos.coste ?? null),
     divisa: datos.divisa,
     periodicidad: datos.periodicidad,
@@ -169,7 +173,9 @@ export async function cambiarEstadoCuenta(
  * Registrar el pago de una cuenta.
  *
  * Crea el gasto Y avanza la renovación en UNA sola llamada, que en Postgres es
- * una sola transacción. Si el movimiento falla, la cuenta no se toca: nunca
+ * una sola transacción. El gasto va a la tienda de la cuenta (General si no
+ * tiene), y el medio de pago lo deduce la base de datos: con titular, bolsillo
+ * de ese socio; sin titular, banco. Si el movimiento falla, la cuenta no se toca: nunca
  * queda una renovación avanzada sin su gasto detrás.
  */
 export async function registrarPagoCuenta(

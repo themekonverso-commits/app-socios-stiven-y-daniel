@@ -1,6 +1,7 @@
 import "server-only";
 
 import { crearClienteServidor } from "@/lib/supabase/server";
+import { SLUG_TODAS, argsAmbito, filtrarPorAmbito, type Ambito } from "@/lib/ambito";
 
 /**
  * Datos para la gestoría.
@@ -9,7 +10,14 @@ import { crearClienteServidor } from "@/lib/supabase/server";
  * hace en Postgres, en un solo sitio, y los tres formatos de salida (Excel, PDF
  * y ZIP) leen exactamente los mismos números. Si el Excel y el PDF no
  * coincidieran, el problema sería de la gestoría, no nuestro.
+ *
+ * Ámbito (0018): las dos lecturas reciben el mismo ámbito como último
+ * parámetro. Sin él, el CONSOLIDADO de la sociedad (todas las tiendas y
+ * General), que es lo que se presenta. Libro e IVA filtran con la misma regla
+ * (`fn_en_ambito` en SQL, `filtrarPorAmbito` aquí), así que siguen cuadrando.
  */
+
+const CONSOLIDADO: Ambito = { tipo: "todas", slug: SLUG_TODAS };
 
 export type TramoIva = {
   tipo_iva: number | null;
@@ -69,16 +77,26 @@ export type FilaLibro = {
   total_eur: number;
   anticipado_por: string | null;
   notas: string | null;
+  tienda_id: string | null;
+  /** Nombre de la tienda, o «General / Sociedad». */
+  tienda: string;
+  /** Solo en gastos: tarjeta_daniel | bolsillo | banco | paypal. */
+  medio_pago: string | null;
 };
 
 export async function obtenerResumenIva(
   desde: string,
   hasta: string,
+  ambito: Ambito = CONSOLIDADO,
 ): Promise<ResumenIva | null> {
   const supabase = await crearClienteServidor();
+  const { p_tienda, p_solo_general } = argsAmbito(ambito);
   const { data, error } = await supabase.rpc("fn_resumen_iva", {
     p_desde: desde,
     p_hasta: hasta,
+    // Los tipos generados no admiten null, pero la función sí: null = todas.
+    p_tienda: p_tienda as string,
+    p_solo_general,
   });
 
   if (error || !data) return null;
@@ -88,21 +106,28 @@ export async function obtenerResumenIva(
 export async function obtenerLibro(
   desde: string,
   hasta: string,
+  ambito: Ambito = CONSOLIDADO,
 ): Promise<FilaLibro[]> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
+  const consulta = supabase
     .from("vw_libro_gestoria")
     .select("*")
     .gte("fecha", desde)
-    .lte("fecha", hasta)
-    .order("fecha", { ascending: true });
+    .lte("fecha", hasta);
+
+  const { data, error } = await filtrarPorAmbito(consulta, ambito)
+    .order("fecha", { ascending: true })
+    .order("id", { ascending: true });
 
   if (error || !data) return [];
   return data as unknown as FilaLibro[];
 }
 
-/** El acta del cierre del periodo, si existe y está aprobada. */
+/**
+ * El acta del cierre del periodo, si existe y está aprobada. Los cierres son
+ * de la sociedad: no dependen del ámbito.
+ */
 export async function obtenerCierreDelPeriodo(desde: string, hasta: string) {
   const supabase = await crearClienteServidor();
 

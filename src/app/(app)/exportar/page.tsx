@@ -4,6 +4,7 @@ import { EncabezadoPagina } from "@/components/encabezado-pagina";
 import { TarjetaBloque } from "@/components/dashboard/tarjeta";
 import { PanelCuadre } from "@/components/exportar/panel-cuadre";
 import { SelectorTrimestre } from "@/components/exportar/selector-trimestre";
+import { SelectorAmbitoGestoria } from "@/components/exportar/selector-ambito";
 import {
   obtenerCierreDelPeriodo,
   obtenerLibro,
@@ -18,17 +19,38 @@ import {
   trimestresDisponibles,
   ultimoTrimestreCerrado,
 } from "@/lib/gestoria/periodos";
+import {
+  PARAM_AMBITO_GESTORIA,
+  leerAmbitoGestoria,
+  nombreAmbitoGestoria,
+  sufijoAmbitoGestoria,
+} from "@/lib/gestoria/ambito";
+import { obtenerTiendas } from "@/lib/tiendas";
 import { formatearEntero, formatearEuros, formatearFecha } from "@/lib/formato";
 
 export const metadata = { title: "Exportar" };
 
+/**
+ * Exportación para la gestoría.
+ *
+ * Multi-tienda (0018): por defecto, el CONSOLIDADO de la sociedad (todas las
+ * tiendas y General), que es lo que lleva la gestoría. Con `?ambito=` se puede
+ * sacar una tienda o solo General. No sigue al selector de tienda de la barra
+ * lateral, por eso el encabezado es «global». Libro, IVA y ZIP usan el mismo
+ * ámbito; las actas de cierre son siempre de la sociedad.
+ */
 export default async function PaginaExportar({
   searchParams,
 }: {
-  searchParams: Promise<{ trimestre?: string }>;
+  searchParams: Promise<{ trimestre?: string; ambito?: string }>;
 }) {
-  const { trimestre: pedido } = await searchParams;
-  const { saldoInicial } = await obtenerAjustes();
+  const { trimestre: pedido, ambito: ambitoPedido } = await searchParams;
+  const [{ saldoInicial }, tiendas] = await Promise.all([obtenerAjustes(), obtenerTiendas()]);
+
+  // Un slug desconocido en la URL cae en el consolidado, y se avisa.
+  const { ambito, error: errorAmbito } = leerAmbitoGestoria(ambitoPedido, tiendas);
+  const nombreAmbito = nombreAmbitoGestoria(ambito);
+  const sufijo = sufijoAmbitoGestoria(ambito);
 
   const hoy = new Date().toISOString().slice(0, 10);
   // Por defecto, el último trimestre CERRADO: es el que se presenta.
@@ -48,34 +70,36 @@ export default async function PaginaExportar({
   }
 
   const [resumen, filas, cierre] = await Promise.all([
-    obtenerResumenIva(desde, hasta),
-    obtenerLibro(desde, hasta),
+    obtenerResumenIva(desde, hasta, ambito),
+    obtenerLibro(desde, hasta, ambito),
     obtenerCierreDelPeriodo(desde, hasta),
   ]);
 
   const enCurso = opciones.find((o) => o.clave === clave)?.enCurso ?? false;
-  const query = `?trimestre=${clave}`;
+  // `ambito` y no `tienda`: el parámetro de tienda cambiaría la tienda
+  // recordada (cookie) al descargar.
+  const query = `?trimestre=${clave}&${PARAM_AMBITO_GESTORIA}=${ambito.slug}`;
 
   const descargas = [
     {
       href: `/api/exportar/paquete${query}`,
       icono: FileArchive,
       titulo: "Paquete completo (ZIP)",
-      detalle: `gestoria-${clave}.zip · libro en Excel y CSV, resumen de IVA y ${cierre ? "acta del cierre" : "sin acta (no hay cierre aprobado)"}`,
+      detalle: `gestoria-${clave}-${sufijo}.zip · libro en Excel y CSV, resumen de IVA y ${cierre ? "acta del cierre" : "sin acta (no hay cierre aprobado)"}`,
       principal: true,
     },
     {
       href: `/api/exportar/libro${query}`,
       icono: FileSpreadsheet,
       titulo: "Libro de ingresos y gastos (Excel)",
-      detalle: `libro-${clave}.xlsx · una hoja por tipo y subtotales por IVA`,
+      detalle: `libro-${clave}-${sufijo}.xlsx · una hoja por tipo, con tienda y medio de pago, y subtotales por IVA`,
       principal: false,
     },
     {
       href: `/api/exportar/iva${query}`,
       icono: FileText,
       titulo: "Resumen de IVA (PDF)",
-      detalle: `resumen-iva-${clave}.pdf · documento de apoyo, no es un modelo oficial`,
+      detalle: `resumen-iva-${clave}-${sufijo}.pdf · documento de apoyo, no es un modelo oficial`,
       principal: false,
     },
   ];
@@ -83,6 +107,7 @@ export default async function PaginaExportar({
   return (
     <div className="flex flex-col gap-5">
       <EncabezadoPagina
+        alcance="global"
         titulo="Exportar para la gestoría"
         descripcion="El trimestre entero en los formatos que suele pedir un asesor fiscal."
       />
@@ -104,13 +129,30 @@ export default async function PaginaExportar({
 
       <TarjetaBloque
         titulo="Periodo"
-        descripcion={`Del ${formatearFecha(desde)} al ${formatearFecha(hasta)} · ${formatearEntero(filas.length)} ${filas.length === 1 ? "movimiento" : "movimientos"}`}
+        descripcion={`Del ${formatearFecha(desde)} al ${formatearFecha(hasta)} · ${nombreAmbito} · ${formatearEntero(filas.length)} ${filas.length === 1 ? "movimiento" : "movimientos"}`}
       >
-        {/* El selector va en el cuerpo, no en la cabecera: a 375 px aplastaba
-            el título contra el borde de la tarjeta. */}
-        <SelectorTrimestre opciones={opciones} valor={clave} />
+        {/* Los selectores van en el cuerpo, no en la cabecera: a 375 px
+            aplastaban el título contra el borde de la tarjeta. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <SelectorTrimestre opciones={opciones} valor={clave} />
+          <SelectorAmbitoGestoria valor={ambito.slug} />
+        </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          {errorAmbito ? (
+            <span className="rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 font-medium text-danger">
+              {errorAmbito} Se muestra el consolidado.
+            </span>
+          ) : null}
+          {ambito.tipo === "todas" ? (
+            <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-text-secondary">
+              Consolidado: todas las tiendas y los gastos compartidos (General)
+            </span>
+          ) : (
+            <span className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 font-medium text-warning">
+              Solo {nombreAmbito}: para presentar impuestos, la gestoría necesita el consolidado
+            </span>
+          )}
           {enCurso ? (
             <span className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 font-medium text-warning">
               Trimestre en curso: aún faltan movimientos por registrar
@@ -118,7 +160,7 @@ export default async function PaginaExportar({
           ) : null}
           {cierre ? (
             <span className="rounded-full border border-success/30 bg-success/10 px-2.5 py-1 font-medium text-success">
-              Cierre aprobado: el acta va dentro del ZIP
+              Cierre aprobado: el acta (de toda la sociedad) va dentro del ZIP
             </span>
           ) : (
             <span className="rounded-full border border-border bg-surface-2 px-2.5 py-1 text-text-secondary">

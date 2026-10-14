@@ -46,11 +46,18 @@ type Agregacion = "fila" | "dia";
 const CLASE_CAMPO =
   "h-11 w-full rounded-lg border border-border bg-surface-2 px-3 text-base text-text-primary outline-none focus-visible:border-brand";
 
+/**
+ * Asistente de importación de CSV. Trabaja siempre sobre UNA tienda (0018):
+ * los duplicados se buscan en ella, los movimientos se crean en ella y los
+ * mapeos que se guarden son suyos.
+ */
 export function AsistenteImportacion({
+  tienda,
   categorias,
   mapeos,
   tasaUsd,
 }: {
+  tienda: { id: string; nombre: string };
   categorias: Categoria[];
   mapeos: MapeoGuardado[];
   tasaUsd: number | null;
@@ -154,7 +161,11 @@ export function AsistenteImportacion({
 
   function validar() {
     iniciarValidacion(async () => {
-      const resultado = await validarImportacion({ filas: filasPreparadas, tipo });
+      const resultado = await validarImportacion({
+        tienda_id: tienda.id,
+        filas: filasPreparadas,
+        tipo,
+      });
       if (!resultado.ok) {
         toast.error(resultado.error);
         return;
@@ -173,6 +184,7 @@ export function AsistenteImportacion({
 
     iniciarImportacion(async () => {
       const resultado = await ejecutarImportacion({
+        tienda_id: tienda.id,
         nombre_archivo: archivo?.name ?? "importacion.csv",
         origen: lectura ? detectarOrigen(lectura.cabeceras) : "CSV",
         categoria_id: categoriaId,
@@ -195,7 +207,7 @@ export function AsistenteImportacion({
       }
 
       toast.success(
-        `${formatearEntero(resultado.datos?.creados ?? 0)} movimientos importados por ${formatearEuros(resultado.datos?.importe_total_eur ?? 0)}.`,
+        `${formatearEntero(resultado.datos?.creados ?? 0)} movimientos importados en ${tienda.nombre} por ${formatearEuros(resultado.datos?.importe_total_eur ?? 0)}.`,
       );
 
       // Vuelta al principio para poder importar otro archivo.
@@ -426,6 +438,7 @@ export function AsistenteImportacion({
                 disabled={!nombreMapeo.trim() || !camposObligatoriosOk}
                 onClick={async () => {
                   const resultado = await guardarMapeo({
+                    tienda_id: tienda.id,
                     nombre: nombreMapeo,
                     origen: lectura ? detectarOrigen(lectura.cabeceras) : null,
                     config: mapeo as Record<string, string | null>,
@@ -434,7 +447,7 @@ export function AsistenteImportacion({
                     toast.error(resultado.error);
                     return;
                   }
-                  toast.success("Mapeo guardado para la próxima vez.");
+                  toast.success(`Mapeo guardado para las próximas importaciones de ${tienda.nombre}.`);
                   setNombreMapeo("");
                   router.refresh();
                 }}
@@ -670,6 +683,7 @@ export function AsistenteImportacion({
         <div className="flex flex-col gap-4">
           <dl className="overflow-hidden rounded-xl border border-border">
             {[
+              { etiqueta: "Tienda", valor: tienda.nombre },
               { etiqueta: "Archivo", valor: archivo?.name ?? "—" },
               {
                 etiqueta: "Movimientos a crear",
@@ -708,6 +722,17 @@ export function AsistenteImportacion({
               historial mientras no entre en un cierre aprobado.
             </span>
           </p>
+
+          {tipo === "gasto" ? (
+            <p className="flex items-start gap-2 rounded-lg border border-border bg-surface-2 p-3 text-sm text-text-secondary">
+              <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
+              <span>
+                Los gastos importados quedan como pagados desde el Banco del negocio.
+                Si alguno lo pagó la tarjeta o un socio de su bolsillo, cámbiale el
+                medio de pago después en Movimientos.
+              </span>
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -771,7 +796,7 @@ export function AsistenteImportacion({
               {importando ? (
                 <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
               ) : null}
-              Importar {formatearEntero(resumen.listas.length)} movimientos
+              Importar {formatearEntero(resumen.listas.length)} movimientos en {tienda.nombre}
             </button>
           ) : null}
         </div>

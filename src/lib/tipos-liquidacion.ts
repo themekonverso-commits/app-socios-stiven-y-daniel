@@ -4,6 +4,10 @@
  * Las funciones SQL devuelven jsonb, así que aquí se declara la forma que
  * tienen esos objetos. Es la frontera entre el cálculo (Postgres) y la
  * interfaz: la aplicación NO recalcula nada, solo pinta lo que llega.
+ *
+ * La liquidación es de la SOCIEDAD (0018): suma todas las tiendas y General, y
+ * no cambia con el selector de tienda. La tienda de cada anticipo se enseña
+ * para saber de dónde viene, no para filtrar.
  */
 
 export type AnticipoSocio = {
@@ -50,11 +54,11 @@ export type ResumenSocio = {
   /** Todo lo que ha puesto de su bolsillo. Es lo que manda en los reembolsos. */
   anticipado: number;
   /**
-   * La parte que consume el cupo de la tarjeta (R6). Si el ajuste
-   * `limite_aportacion` no tiene ámbito, coincide con `anticipado`.
+   * La parte pagada con la tarjeta de crédito (medio_pago = tarjeta_daniel):
+   * es la que consume el cupo (R6), de todas las tiendas y de General.
    */
   anticipado_cupo: number;
-  /** El resto: reembolsable igual, pero no gasta tarjeta. */
+  /** Lo pagado de bolsillo: reembolsable igual, pero no gasta tarjeta. */
   anticipado_otros: number;
   reembolsado: number;
   pendiente: number;
@@ -72,6 +76,26 @@ export type AnticipoPendiente = {
   total_eur: number;
   reembolsado_eur: number;
   pendiente_eur: number;
+  /** null = General / Sociedad. */
+  tienda_id: string | null;
+  /** Nombre de la tienda, o «General / Sociedad». */
+  tienda: string;
+  /** Color de la tienda; null en General. */
+  tienda_color: string | null;
+  /** tarjeta_daniel | bolsillo. */
+  medio_pago: string | null;
+};
+
+/**
+ * Cuenta del negocio de la que sale un reembolso (0017). Es la columna
+ * `reembolsos.cuenta_pago`, que sigue existiendo: no confundir con la
+ * `movimientos.cuenta_pago` que retiró la 0019.
+ */
+export const CUENTAS_REEMBOLSO = ["banco", "paypal"] as const;
+export type CuentaReembolso = (typeof CUENTAS_REEMBOLSO)[number];
+export const ETIQUETA_CUENTA_REEMBOLSO: Record<CuentaReembolso, string> = {
+  banco: "Banco",
+  paypal: "PayPal",
 };
 
 export type MetodoReembolso = "transferencia" | "efectivo" | "compensación";
@@ -93,6 +117,8 @@ export type ReembolsoHistorial = {
   notas: string | null;
   num_anticipos: number;
   registrado_por: string;
+  /** Tiendas de los anticipos que cubre (null = General), sin repetir. */
+  tiendas: (string | null)[];
 };
 
 export type EstadoCierre = "borrador" | "aprobado" | "anulado";
@@ -120,25 +146,24 @@ export type Cierre = {
   created_at: string | null;
 };
 
-/** Un anticipo que consume el cupo de la tarjeta (R6), para la lista del cuadro. */
+/** Un gasto pagado con la tarjeta (R6), para la lista de los últimos. */
 export type MovimientoCupo = {
   id: string;
   fecha: string;
   concepto: string;
   total_eur: number;
   categoria: string;
+  /** null = General / Sociedad. */
+  tienda_id: string | null;
 };
 
 export type LimiteAportacion = {
   socio_id: string | null;
   importe: number;
   /**
-   * Ámbito del cupo. Los 3.000 € son el tope de la tarjeta con la que se paga
-   * la publicidad, el producto y su envío (0016): un anticipo de otra
-   * categoría se reembolsa igual, pero no consume cupo. Vacío = el cupo
-   * cuenta todos los anticipos.
+   * Qué cuenta el cupo, en una frase para los textos. Desde la 0018 el cupo
+   * mide los gastos pagados con la tarjeta (medio_pago = tarjeta_daniel), de
+   * todas las tiendas y de General; ya no filtra por categoría.
    */
-  categorias: { id: string; nombre: string }[];
-  /** Las categorías en una frase: «publicidad, coste de producto y envíos y logística». Null sin ámbito. */
   ambito: string | null;
 };

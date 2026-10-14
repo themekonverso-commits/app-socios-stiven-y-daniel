@@ -8,24 +8,18 @@ import type { ResumenSocio } from "@/lib/tipos-liquidacion";
  * El acento de la tarjeta es el color del socio, para poder distinguirlas de
  * un vistazo sin leer el nombre.
  *
- * El total anticipado se desglosa en lo que consume el cupo de la tarjeta y lo
- * que no (R6), pero el PENDIENTE DE COBRO es la suma de los dos: el contrato
- * no distingue por categoría, todo anticipo justificado da derecho a reembolso.
+ * El total anticipado se desglosa en lo pagado con la tarjeta (consume el
+ * cupo, R6) y lo pagado de bolsillo, pero el PENDIENTE DE COBRO es la suma de
+ * los dos: todo anticipo justificado da derecho a reembolso. Suma todas las
+ * tiendas y General.
  */
-export function TarjetaSocio({
-  socio,
-  ambito,
-}: {
-  socio: ResumenSocio;
-  /** Categorías del cupo en una frase. Sin ellas no hay desglose que enseñar. */
-  ambito?: string | null;
-}) {
+export function TarjetaSocio({ socio }: { socio: ResumenSocio }) {
   const color = socio.color ?? "#6E6E73";
   const pct = porcentaje(socio.reembolsado, socio.anticipado) ?? 0;
   const saldado = socio.pendiente <= 0 && socio.anticipado > 0;
 
-  // Sin ámbito el desglose no dice nada: todo caería en una sola línea.
-  const hayDesglose = Boolean(ambito) && socio.anticipado > 0;
+  // Solo quien ha pagado algo con la tarjeta tiene dos líneas que enseñar.
+  const hayDesglose = socio.anticipado_cupo > 0 && socio.anticipado > 0;
 
   return (
     <article
@@ -57,15 +51,15 @@ export function TarjetaSocio({
         {hayDesglose ? (
           <div className="flex flex-col gap-1 border-l-2 border-border pl-3 text-xs">
             <div className="flex items-baseline justify-between gap-3">
-              <dt className="text-text-muted" title={ambito ?? undefined}>
-                En el cupo de la tarjeta
+              <dt className="text-text-muted" title="Consume el cupo de la tarjeta">
+                Con la tarjeta (cupo)
               </dt>
               <dd className="cifra text-text-secondary">
                 {formatearEuros(socio.anticipado_cupo)}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3">
-              <dt className="text-text-muted">Otros gastos</dt>
+              <dt className="text-text-muted">De su bolsillo</dt>
               <dd className="cifra text-text-secondary">
                 {formatearEuros(socio.anticipado_otros)}
               </dd>

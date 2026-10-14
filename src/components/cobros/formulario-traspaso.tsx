@@ -71,7 +71,11 @@ export function FormularioTraspaso() {
       <p className="text-xs text-text-secondary">
         Mueve dinero de la cuenta de PayPal al banco. No es ingreso ni gasto: la caja
         total no cambia. Si PayPal cobra comisión por el traspaso, esa parte sí se
-        registra como gasto.
+        registra como gasto, en General / Sociedad.
+      </p>
+      <p className="mt-1 text-xs text-text-muted">
+        PayPal y el banco son de la sociedad, no de una tienda: el traspaso se ve y
+        se registra igual desde cualquier tienda.
       </p>
 
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

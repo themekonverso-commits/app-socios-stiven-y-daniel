@@ -17,8 +17,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useAmbito } from "@/components/tiendas/proveedor-tiendas";
 import { cn } from "@/lib/utils";
 import { formatearFecha } from "@/lib/formato";
+import { conTienda } from "@/lib/ambito";
+import { ETIQUETA_MEDIO, MEDIOS_PAGO } from "@/lib/medios-pago";
 import {
   PRESETS_FECHA,
   escribirFiltros,
@@ -37,7 +40,8 @@ const CLASE_CONTROL =
  * Todo el estado vive en la query string: así una vista filtrada se puede
  * guardar en marcadores, compartir, y el botón «atrás» del navegador funciona.
  * Cada cambio vuelve a la página 1, porque si no se puede acabar en una página
- * que ya no existe.
+ * que ya no existe. La tienda no es un filtro de aquí sino el ámbito de la
+ * app: viaja siempre en la URL para que cambiar un filtro no la pierda.
  */
 export function BarraFiltros({
   filtros,
@@ -50,6 +54,7 @@ export function BarraFiltros({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { slug } = useAmbito();
   const [pendiente, iniciarTransicion] = useTransition();
 
   const [busqueda, setBusqueda] = useState(filtros.q);
@@ -60,10 +65,12 @@ export function BarraFiltros({
       const siguientes: Filtros = { ...filtros, ...cambios, pagina: 1 };
       const query = escribirFiltros(siguientes);
       iniciarTransicion(() => {
-        router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+        router.push(conTienda(query ? `${pathname}?${query}` : pathname, slug), {
+          scroll: false,
+        });
       });
     },
-    [filtros, pathname, router],
+    [filtros, pathname, router, slug],
   );
 
   // Buscador con debounce de 300 ms: no se navega en cada tecla.
@@ -243,6 +250,23 @@ export function BarraFiltros({
           ))}
         </select>
 
+        {/* Medio de pago — solo gastos */}
+        <select
+          aria-label="Medio de pago"
+          value={filtros.medio}
+          onChange={(evento) =>
+            navegar({ medio: evento.target.value as Filtros["medio"] })
+          }
+          className={cn(CLASE_CONTROL, "cursor-pointer pr-8")}
+        >
+          <option value="todos">Medio: todos</option>
+          {MEDIOS_PAGO.map((medio) => (
+            <option key={medio} value={medio}>
+              {ETIQUETA_MEDIO[medio]}
+            </option>
+          ))}
+        </select>
+
         {/* Estado de reembolso */}
         <select
           aria-label="Estado de reembolso"
@@ -281,7 +305,9 @@ export function BarraFiltros({
             type="button"
             onClick={() => {
               setBusqueda("");
-              iniciarTransicion(() => router.push(pathname, { scroll: false }));
+              iniciarTransicion(() =>
+                router.push(conTienda(pathname, slug), { scroll: false }),
+              );
             }}
             className="flex min-h-11 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
           >

@@ -5,7 +5,8 @@ import JSZip from "jszip";
 import type { FilaLibro, ResumenIva } from "@/lib/consultas-gestoria";
 import type { Cierre } from "@/lib/tipos-liquidacion";
 import { generarActaPdf } from "@/lib/gestoria/acta-pdf";
-import { generarLibroExcel } from "@/lib/gestoria/libro-excel";
+import { etiquetaMedio, generarLibroExcel } from "@/lib/gestoria/libro-excel";
+import { NOMBRE_CONSOLIDADO } from "@/lib/gestoria/ambito";
 import { generarResumenIvaPdf } from "@/lib/gestoria/resumen-iva-pdf";
 
 /**
@@ -17,7 +18,8 @@ import { generarResumenIvaPdf } from "@/lib/gestoria/resumen-iva-pdf";
  * consulta, así que no pueden discrepar.
  *
  * El LEEME.txt de dentro repite la advertencia del PDF. Si alguien descomprime
- * el ZIP y solo abre el Excel, tiene que enterarse igual.
+ * el ZIP y solo abre el Excel, tiene que enterarse igual. Y dice el ámbito
+ * (0018): consolidado de la sociedad, una tienda o solo General.
  */
 
 function csvSeguro(valor: string | null | undefined): string {
@@ -44,6 +46,8 @@ function generarLibroCsv(filas: FilaLibro[]): string {
     "Tipo",
     "Concepto",
     "Categoría",
+    "Tienda",
+    "Medio de pago",
     "Divisa",
     "Base imponible",
     "Tipo IVA",
@@ -63,6 +67,8 @@ function generarLibroCsv(filas: FilaLibro[]): string {
       csvSeguro(f.tipo === "ingreso" ? "Ingreso" : "Gasto"),
       csvSeguro(f.concepto),
       csvSeguro(f.categoria),
+      csvSeguro(f.tienda),
+      csvSeguro(etiquetaMedio(f.medio_pago)),
       csvSeguro(f.divisa),
       num(f.base_imponible),
       num(f.iva_tipo, 0),
@@ -84,8 +90,10 @@ function generarLibroCsv(filas: FilaLibro[]): string {
 function generarLeeme(
   resumen: ResumenIva,
   etiqueta: string,
+  nombreAmbito: string,
   hayActa: boolean,
 ): string {
+  const consolidado = nombreAmbito === NOMBRE_CONSOLIDADO;
   const c = resumen.cuadre;
   const eur = (v: number) => `${v.toFixed(2).replace(".", ",")} EUR`;
 
@@ -102,6 +110,10 @@ function generarLeeme(
     "===========================================================",
     "",
     `Periodo: ${etiqueta} (del ${fechaEs(resumen.desde)} al ${fechaEs(resumen.hasta)})`,
+    `Ámbito:  ${nombreAmbito}`,
+    consolidado
+      ? "         Todas las tiendas de la sociedad y los gastos compartidos (General)."
+      : "         SOLO esta parte de la sociedad. Para presentar impuestos, usar el consolidado.",
     "",
     "Contenido del paquete",
     "---------------------",
@@ -111,7 +123,7 @@ function generarLeeme(
     "                        decimales con coma, UTF-8 con BOM).",
     "  resumen-iva.pdf       Resumen de IVA repercutido y soportado.",
     hayActa
-      ? "  acta-cierre.pdf       Acta del cierre aprobado del periodo."
+      ? "  acta-cierre.pdf       Acta del cierre aprobado del periodo. Es de la\n                        sociedad entera, sea cual sea el ámbito."
       : "  (sin acta: no hay un cierre aprobado para este periodo)",
     "",
     "Cuadre de los subtotales",
@@ -140,13 +152,14 @@ export async function generarPaquete(
   filas: FilaLibro[],
   resumen: ResumenIva,
   etiqueta: string,
+  nombreAmbito: string,
   cierre: (Cierre & { nombrePorSocio: Record<string, string> }) | null,
 ): Promise<Buffer> {
   const zip = new JSZip();
 
   const [excel, pdfIva] = await Promise.all([
-    generarLibroExcel(filas, resumen, etiqueta),
-    generarResumenIvaPdf(resumen, etiqueta),
+    generarLibroExcel(filas, resumen, etiqueta, nombreAmbito),
+    generarResumenIvaPdf(resumen, etiqueta, nombreAmbito),
   ]);
 
   zip.file("libro.xlsx", excel);
@@ -158,7 +171,7 @@ export async function generarPaquete(
     zip.file("acta-cierre.pdf", await generarActaPdf(datos, nombrePorSocio));
   }
 
-  zip.file("LEEME.txt", generarLeeme(resumen, etiqueta, cierre !== null));
+  zip.file("LEEME.txt", generarLeeme(resumen, etiqueta, nombreAmbito, cierre !== null));
 
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }

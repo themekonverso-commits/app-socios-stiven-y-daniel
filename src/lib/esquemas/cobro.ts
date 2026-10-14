@@ -16,6 +16,8 @@ const IMPORTE = z.number().finite().max(9_999_999);
 
 export const esquemaCobro = z
   .object({
+    /** Tienda del cobro (0018). Obligatoria: un cobro siempre es de una tienda. */
+    tienda_id: z.uuid({ error: "Elige la tienda del cobro." }),
     fecha_cobro: FECHA,
     periodo_desde: FECHA,
     periodo_hasta: FECHA,
@@ -42,7 +44,8 @@ export type DatosCobro = z.infer<typeof esquemaCobro>;
 
 /**
  * Traspaso de PayPal al banco. No es ingreso ni gasto: solo mueve saldo. Si
- * PayPal cobra comisión, esa parte sí es gasto (lo genera la base de datos).
+ * PayPal cobra comisión, esa parte sí es gasto (lo genera la base de datos, en
+ * General). No lleva tienda: PayPal y el banco son de la sociedad.
  */
 export const esquemaTraspaso = z
   .object({

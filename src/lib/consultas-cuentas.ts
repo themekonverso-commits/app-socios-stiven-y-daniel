@@ -2,6 +2,7 @@ import "server-only";
 
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { redondear2 } from "@/lib/dinero";
+import { filtrarPorAmbito, type Ambito } from "@/lib/ambito";
 import type { FiltrosCuentas } from "@/lib/esquemas/cuentas";
 import type {
   CuentaConCoste,
@@ -14,6 +15,10 @@ import type {
  *
  * Los filtros se aplican en la consulta, no en el navegador, y el coste
  * mensual ya viene normalizado por `vw_cuentas_coste`.
+ *
+ * Multi-tienda (0018): cuentas y notas tienen `tienda_id` (NULL = General /
+ * Sociedad). Toda lectura por tienda recibe el ámbito como ÚLTIMO parámetro
+ * opcional: sin él no filtra (todas, cada una con su tienda).
  */
 
 const n = (valor: unknown): number => {
@@ -27,10 +32,12 @@ function escaparBusqueda(termino: string): string {
 
 export async function obtenerCuentas(
   filtros: FiltrosCuentas,
+  ambito?: Ambito,
 ): Promise<CuentaConCoste[]> {
   const supabase = await crearClienteServidor();
 
   let consulta = supabase.from("vw_cuentas_coste").select("*");
+  if (ambito) consulta = filtrarPorAmbito(consulta, ambito);
 
   if (filtros.tipo !== "todos") consulta = consulta.eq("tipo", filtros.tipo);
   if (filtros.estado !== "todos") consulta = consulta.eq("estado", filtros.estado);
@@ -55,11 +62,16 @@ export async function obtenerCuentas(
   return data as unknown as CuentaConCoste[];
 }
 
-/** Todas las cuentas sin filtrar: el resumen es del negocio, no de la vista. */
-export async function obtenerResumenCuentas(): Promise<ResumenCuentas> {
+/**
+ * Las cuentas sin los filtros de la barra: el resumen es del ámbito entero
+ * (la tienda, General o todas), no de lo que se esté buscando.
+ */
+export async function obtenerResumenCuentas(ambito?: Ambito): Promise<ResumenCuentas> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase.from("vw_cuentas_coste").select("*");
+  let consulta = supabase.from("vw_cuentas_coste").select("*");
+  if (ambito) consulta = filtrarPorAmbito(consulta, ambito);
+  const { data, error } = await consulta;
 
   const vacio: ResumenCuentas = {
     costeMensual: 0,
@@ -121,14 +133,18 @@ export async function obtenerResumenCuentas(): Promise<ResumenCuentas> {
 /** Las N próximas renovaciones, para la tarjeta del dashboard. */
 export async function obtenerProximasRenovaciones(
   limite = 3,
+  ambito?: Ambito,
 ): Promise<CuentaConCoste[]> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
+  let consulta = supabase
     .from("vw_cuentas_coste")
     .select("*")
     .eq("estado", "activa")
-    .not("fecha_renovacion", "is", null)
+    .not("fecha_renovacion", "is", null);
+  if (ambito) consulta = filtrarPorAmbito(consulta, ambito);
+
+  const { data, error } = await consulta
     .order("fecha_renovacion", { ascending: true })
     .limit(limite);
 
@@ -136,7 +152,10 @@ export async function obtenerProximasRenovaciones(
   return data as unknown as CuentaConCoste[];
 }
 
-/** Tipos ya usados, para ofrecerlos en el formulario junto a los estándar. */
+/**
+ * Tipos ya usados, para ofrecerlos en el formulario junto a los estándar. De
+ * todas las tiendas a propósito: son sugerencias, no datos.
+ */
 export async function obtenerTiposUsados(): Promise<string[]> {
   const supabase = await crearClienteServidor();
   const { data } = await supabase.from("cuentas_activos").select("tipo");
@@ -155,6 +174,7 @@ export type FiltrosNotas = {
 
 export async function obtenerNotas(
   filtros: FiltrosNotas,
+  ambito?: Ambito,
 ): Promise<NotaConAutor[]> {
   const supabase = await crearClienteServidor();
 
@@ -162,6 +182,7 @@ export async function obtenerNotas(
     .from("notas")
     .select("*, autor:created_by ( nombre, color )")
     .eq("archivada", filtros.archivadas);
+  if (ambito) consulta = filtrarPorAmbito(consulta, ambito);
 
   if (filtros.autor !== "todos") consulta = consulta.eq("created_by", filtros.autor);
 
@@ -193,10 +214,14 @@ export async function obtenerNotas(
   });
 }
 
-/** Etiquetas existentes con su recuento, para los chips del filtro. */
-export async function obtenerEtiquetas(): Promise<{ etiqueta: string; total: number }[]> {
+/** Etiquetas de las notas del ámbito con su recuento, para los chips del filtro. */
+export async function obtenerEtiquetas(
+  ambito?: Ambito,
+): Promise<{ etiqueta: string; total: number }[]> {
   const supabase = await crearClienteServidor();
-  const { data } = await supabase.from("notas").select("etiquetas").eq("archivada", false);
+  let consulta = supabase.from("notas").select("etiquetas").eq("archivada", false);
+  if (ambito) consulta = filtrarPorAmbito(consulta, ambito);
+  const { data } = await consulta;
 
   const recuento = new Map<string, number>();
   for (const fila of data ?? []) {

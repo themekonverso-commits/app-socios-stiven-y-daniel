@@ -8,8 +8,13 @@ import { redondear2 } from "@/lib/dinero";
 import type { Resultado } from "@/app/acciones/movimientos";
 
 /**
- * Ajustes del negocio: saldos iniciales (banco y PayPal) y objetivos mensuales.
+ * Ajustes de la sociedad: saldos iniciales del banco y de PayPal.
  * Validado en el servidor, como todo lo que escribe.
+ *
+ * Solo escribe esas dos claves. Los objetivos mensuales son de cada tienda
+ * (`tiendas.objetivo_mes`, se editan en /tiendas) y el cupo de la tarjeta ya
+ * no tiene categorías: aquí no se vuelve a escribir ni `objetivo_mes` ni
+ * `categoria_ids`.
  */
 
 const esquemaAjustes = z.object({
@@ -29,16 +34,6 @@ const esquemaAjustes = z.object({
   paypal_fecha: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha de PayPal no es válida."),
-  objetivo_facturacion: z
-    .number()
-    .finite()
-    .min(0, "El objetivo no puede ser negativo.")
-    .max(99_999_999),
-  objetivo_beneficio: z
-    .number()
-    .finite()
-    .min(-99_999_999)
-    .max(99_999_999),
 });
 
 export async function guardarAjustes(entrada: unknown): Promise<Resultado> {
@@ -76,13 +71,6 @@ export async function guardarAjustes(entrada: unknown): Promise<Resultado> {
         valor: {
           importe: redondear2(datos.paypal_importe),
           fecha: datos.paypal_fecha,
-        },
-      },
-      {
-        clave: "objetivo_mes",
-        valor: {
-          facturacion: redondear2(datos.objetivo_facturacion),
-          beneficio: redondear2(datos.objetivo_beneficio),
         },
       },
     ],

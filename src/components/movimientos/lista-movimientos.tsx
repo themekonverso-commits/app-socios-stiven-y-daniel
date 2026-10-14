@@ -7,7 +7,15 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 import { MenuAcciones } from "@/components/movimientos/menu-acciones";
 import { usePanelMovimiento } from "@/components/movimientos/proveedor-movimientos";
+import { useAmbito, useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { cn } from "@/lib/utils";
+import {
+  colorTienda,
+  conTienda as conTiendaEnHref,
+  nombreTienda,
+  type Tienda,
+} from "@/lib/ambito";
+import { ETIQUETA_MEDIO, ETIQUETA_MEDIO_CORTA } from "@/lib/medios-pago";
 import { formatearEuros, formatearFecha, formatearNumero } from "@/lib/formato";
 import {
   escribirFiltros,
@@ -59,6 +67,7 @@ function CabeceraOrdenable({
   const siguienteDireccion =
     activo && filtros.direccion === "desc" ? "asc" : "desc";
 
+  const ambito = useAmbito();
   const query = escribirFiltros({
     ...filtros,
     orden: campo,
@@ -70,7 +79,7 @@ function CabeceraOrdenable({
 
   return (
     <Link
-      href={query ? `${pathname}?${query}` : pathname}
+      href={conTiendaEnHref(query ? `${pathname}?${query}` : pathname, ambito.slug)}
       scroll={false}
       aria-sort={activo ? (filtros.direccion === "asc" ? "ascending" : "descending") : "none"}
       className={cn(
@@ -124,23 +133,58 @@ function PuntoSocio({
   );
 }
 
-/** Quién pagó un gasto: el socio que lo adelantó, o la cuenta del negocio. */
+/**
+ * Con qué se pagó un gasto (0018): el medio y, si es un anticipo (tarjeta o
+ * bolsillo), el socio al que se le debe.
+ */
 function PagadoPor({ movimiento }: { movimiento: MovimientoConRelaciones }) {
-  if (movimiento.tipo === "gasto" && !movimiento.anticipado && movimiento.cuenta_pago) {
-    const cuenta = movimiento.cuenta_pago === "paypal" ? "PayPal" : "Banco";
+  const medio = movimiento.medio_pago;
+  if (movimiento.tipo !== "gasto" || !medio) {
+    return <span className="text-text-muted">—</span>;
+  }
+
+  if (medio === "banco" || medio === "paypal") {
     return (
-      <span className="text-xs text-text-secondary" title={`Pagado por el negocio desde ${cuenta}`}>
-        {cuenta}
+      <span
+        className="text-xs text-text-secondary"
+        title={`Pagado por el negocio desde ${ETIQUETA_MEDIO[medio]}`}
+      >
+        {ETIQUETA_MEDIO_CORTA[medio]}
         <span className="sr-only"> (pagado por el negocio)</span>
       </span>
     );
   }
+
   return (
-    <PuntoSocio
-      nombre={movimiento.anticipado?.nombre ?? null}
-      color={movimiento.anticipado?.color ?? null}
-      papel="Anticipado por"
-    />
+    <span className="inline-flex items-center gap-1.5" title={ETIQUETA_MEDIO[medio]}>
+      <span className="text-xs text-text-secondary">{ETIQUETA_MEDIO_CORTA[medio]}</span>
+      <PuntoSocio
+        nombre={movimiento.anticipado?.nombre ?? null}
+        color={movimiento.anticipado?.color ?? null}
+        papel="Anticipado por"
+      />
+    </span>
+  );
+}
+
+/** Tienda de la fila, en la vista «Todas». null = General / Sociedad. */
+function EtiquetaTienda({
+  tiendaId,
+  tiendas,
+}: {
+  tiendaId: string | null;
+  tiendas: Tienda[];
+}) {
+  const nombre = nombreTienda(tiendaId, tiendas);
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5" title={nombre}>
+      <span
+        aria-hidden="true"
+        style={{ backgroundColor: colorTienda(tiendaId, tiendas) }}
+        className="size-2 shrink-0 rounded-full"
+      />
+      <span className="truncate text-xs text-text-secondary">{nombre}</span>
+    </span>
   );
 }
 
@@ -175,6 +219,9 @@ export function ListaMovimientos({
   filtros: Filtros;
 }) {
   const { abrirEdicion } = usePanelMovimiento();
+  const tiendas = useTiendas();
+  // En «Todas» se mezclan tiendas: cada fila dice de cuál es.
+  const conTienda = useAmbito().tipo === "todas";
   const [locales, setLocales] = useState(filas);
   const [eliminados, setEliminados] = useState<Set<string>>(new Set());
 
@@ -232,15 +279,20 @@ export function ListaMovimientos({
                     filtros={filtros}
                   />
                 </th>
+                {conTienda ? (
+                  <th scope="col" className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
+                    Tienda
+                  </th>
+                ) : null}
                 <th scope="col" className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase">
                   Categoría
                 </th>
                 <th
                   scope="col"
-                  title="Quién puso el dinero"
+                  title="Medio de pago y, si es un anticipo, quién puso el dinero"
                   className="px-4 py-3 text-xs font-semibold tracking-wide text-text-muted uppercase"
                 >
-                  Pagado por
+                  Pagado con
                 </th>
                 <th
                   scope="col"
@@ -292,6 +344,12 @@ export function ListaMovimientos({
                       </span>
                     ) : null}
                   </td>
+
+                  {conTienda ? (
+                    <td className="max-w-[160px] px-4 py-3">
+                      <EtiquetaTienda tiendaId={movimiento.tienda_id} tiendas={tiendas} />
+                    </td>
+                  ) : null}
 
                   <td className="px-4 py-3">
                     {movimiento.categorias ? (
@@ -367,6 +425,11 @@ export function ListaMovimientos({
                   {movimiento.categorias?.nombre ?? "Sin categoría"} ·{" "}
                   <span className="cifra">{formatearFecha(movimiento.fecha)}</span>
                 </p>
+                {conTienda ? (
+                  <span className="mt-1 flex">
+                    <EtiquetaTienda tiendaId={movimiento.tienda_id} tiendas={tiendas} />
+                  </span>
+                ) : null}
               </button>
 
               <div className="flex shrink-0 flex-col items-end gap-1">
@@ -392,7 +455,7 @@ export function ListaMovimientos({
               <span className="ml-auto flex items-center gap-3">
                 {movimiento.tipo === "gasto" ? (
                   <span className="flex items-center gap-1.5">
-                    <span className="text-text-muted">Pagó</span>
+                    <span className="text-text-muted">Con</span>
                     <PagadoPor movimiento={movimiento} />
                   </span>
                 ) : null}

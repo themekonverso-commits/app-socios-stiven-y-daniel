@@ -13,6 +13,10 @@ import type { Resultado } from "@/app/acciones/movimientos";
  * La validación se hace en el SERVIDOR porque la parte más importante —saber
  * si una fila ya existe— necesita consultar la base de datos. El navegador solo
  * lee el archivo y propone el mapeo.
+ *
+ * Desde la 0018 todo es de UNA tienda: los duplicados se buscan dentro de
+ * ella, los movimientos se crean en ella y los mapeos se guardan en ella. Los
+ * gastos importados no llevan medio de pago: el trigger los deja en «banco».
  */
 
 const UUID = z.uuid();
@@ -39,7 +43,10 @@ const esquemaFila = z.object({
   num_pedidos: z.number().int().nullable(),
 });
 
+const TIENDA = z.uuid("Elige una tienda para importar.");
+
 const esquemaValidacion = z.object({
+  tienda_id: TIENDA,
   filas: z.array(esquemaFila).max(5000, "Máximo 5.000 filas por importación."),
   tipo: z.enum(["ingreso", "gasto"]),
 });
@@ -47,8 +54,8 @@ const esquemaValidacion = z.object({
 /**
  * Marca cada fila como lista, duplicada o errónea.
  *
- * Un duplicado es un movimiento que ya existe con la MISMA fecha, concepto e
- * importe. Es la comprobación que evita el error más caro de una importación:
+ * Un duplicado es un movimiento que ya existe EN LA MISMA TIENDA con la misma
+ * fecha, concepto e importe. Es la comprobación que evita el error más caro de una importación:
  * volcar dos veces el mismo archivo y duplicar la facturación de un mes.
  */
 export async function validarImportacion(
@@ -62,7 +69,7 @@ export async function validarImportacion(
     };
   }
 
-  const { filas, tipo } = validacion.data;
+  const { filas, tipo, tienda_id } = validacion.data;
   const supabase = await crearClienteServidor();
 
   // Se consultan solo los movimientos del rango de fechas del archivo, no la
@@ -77,6 +84,7 @@ export async function validarImportacion(
     const { data } = await supabase
       .from("movimientos")
       .select("fecha, concepto, total")
+      .eq("tienda_id", tienda_id)
       .eq("tipo", tipo)
       .gte("fecha", desde)
       .lte("fecha", hasta);
@@ -124,6 +132,7 @@ export async function validarImportacion(
 }
 
 const esquemaImportacion = z.object({
+  tienda_id: TIENDA,
   nombre_archivo: z.string().trim().min(1).max(200),
   origen: z.string().trim().max(60).nullable().optional(),
   categoria_id: UUID,
@@ -172,6 +181,7 @@ export async function ejecutarImportacion(
   }));
 
   const { data, error } = await supabase.rpc("fn_importar_movimientos", {
+    p_tienda: datos.tienda_id,
     p_nombre_archivo: datos.nombre_archivo,
     p_origen: datos.origen ?? "CSV",
     p_filas: filas,
@@ -183,6 +193,7 @@ export async function ejecutarImportacion(
 
   revalidatePath("/importar");
   revalidatePath("/movimientos");
+  revalidatePath("/diario");
   revalidatePath("/kpis");
   revalidatePath("/");
 
@@ -213,6 +224,7 @@ export async function deshacerImportacion(
 }
 
 const esquemaMapeo = z.object({
+  tienda_id: TIENDA,
   nombre: z.string().trim().min(1, "Ponle un nombre al mapeo.").max(60),
   origen: z.string().trim().max(60).nullable().optional(),
   // El tipo `Json` de Supabase no admite `unknown`: se declara con los
@@ -238,6 +250,7 @@ export async function guardarMapeo(entrada: unknown): Promise<Resultado<{ id: st
   const { data, error } = await supabase
     .from("mapeos_importacion")
     .insert({
+      tienda_id: validacion.data.tienda_id,
       nombre: validacion.data.nombre,
       origen: validacion.data.origen ?? null,
       config: validacion.data.config,

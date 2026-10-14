@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { conTienda } from "@/lib/ambito";
 import { escribirFiltros, FILAS_POR_PAGINA, type Filtros } from "@/lib/esquemas/filtros";
 import { formatearEntero } from "@/lib/formato";
 
@@ -10,10 +11,13 @@ export function Paginacion({
   filtros,
   total,
   paginas,
+  slugTienda,
 }: {
   filtros: Filtros;
   total: number;
   paginas: number;
+  /** Ámbito activo: los enlaces lo llevan para no perder la tienda. */
+  slugTienda: string;
 }) {
   if (total === 0) return null;
 
@@ -22,7 +26,7 @@ export function Paginacion({
 
   const enlace = (pagina: number) => {
     const query = escribirFiltros({ ...filtros, pagina });
-    return query ? `/movimientos?${query}` : "/movimientos";
+    return conTienda(query ? `/movimientos?${query}` : "/movimientos", slugTienda);
   };
 
   const claseBoton =

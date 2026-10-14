@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { format } from "date-fns";
-import { ChevronDown, LoaderCircle, Megaphone } from "lucide-react";
+import { ChevronDown, LoaderCircle, Lock, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 
 import { CampoImporte } from "@/components/campos/campo-importe";
@@ -14,8 +14,20 @@ import { SelectorFecha } from "@/components/campos/selector-fecha";
 import { SelectorSegmentado } from "@/components/campos/selector-segmentado";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { useAmbito, useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { cn } from "@/lib/utils";
-import { CUENTAS_PAGO, ETIQUETA_CUENTA, type CuentaPago } from "@/lib/metodos-cobro";
+import {
+  COLOR_GENERAL,
+  NOMBRE_GENERAL,
+  type Ambito,
+  type Tienda,
+} from "@/lib/ambito";
+import {
+  DESCRIPCION_MEDIO,
+  ETIQUETA_MEDIO,
+  MEDIOS_PAGO,
+  type MedioPago,
+} from "@/lib/medios-pago";
 import { calcularDesdeBase, calcularDesdeTotal, convertirAEuros } from "@/lib/dinero";
 import { formatearEuros, formatearNumero } from "@/lib/formato";
 import { PLATAFORMAS, TIPOS_IVA } from "@/lib/esquemas/movimiento";
@@ -36,8 +48,33 @@ const iso = (fecha: Date) => format(fecha, "yyyy-MM-dd");
 
 export type ModoFormulario = "crear" | "editar" | "duplicar";
 
+/**
+ * Valor del campo Tienda: el id de una tienda, General / Sociedad, o vacío
+ * mientras no se elija (en la vista «Todas» no hay valor por defecto: es
+ * demasiado fácil apuntar un gasto a la tienda equivocada).
+ */
+const TIENDA_GENERAL = "general";
+const SIN_TIENDA = "";
+
+/** La tienda que propone el formulario según la vista en la que se abre. */
+function tiendaDelAmbito(ambito: Ambito): string {
+  if (ambito.tipo === "general") return TIENDA_GENERAL;
+  if (ambito.tipo === "tienda" && ambito.tienda.estado !== "archivada") {
+    return ambito.tienda.id;
+  }
+  return SIN_TIENDA;
+}
+
+/** El medio de un gasto ya guardado. Los anteriores a la 0018 se deducen. */
+function medioDe(movimiento: MovimientoConRelaciones): MedioPago | null {
+  if (movimiento.tipo !== "gasto") return null;
+  return movimiento.medio_pago ?? (movimiento.anticipado_por ? "bolsillo" : "banco");
+}
+
 type EstadoFormulario = {
   tipo: TipoMovimiento;
+  /** Id de tienda, TIENDA_GENERAL o SIN_TIENDA. */
+  tienda: string;
   fecha: string;
   concepto: string;
   categoria: SeleccionCategoria | null;
@@ -47,9 +84,10 @@ type EstadoFormulario = {
   iva_tipo: number;
   iva_importe: number;
   total: number | null;
+  /** Solo en gastos. Decide si hay socio y cuál (ver lib/medios-pago.ts). */
+  medio_pago: MedioPago | null;
+  /** Quién adelantó el dinero. Solo se elige con «bolsillo». */
   anticipado_por: string | null;
-  /** Gasto pagado por el negocio: de qué cuenta salió. Excluye anticipado_por. */
-  cuenta_pago: CuentaPago | null;
   /** Solo en las ventas del registro diario. Texto para permitir el campo vacío. */
   num_pedidos: string;
   plataforma: Plataforma | null;
@@ -62,10 +100,21 @@ function estadoInicial(
   movimiento: MovimientoConRelaciones | null,
   modo: ModoFormulario,
   usuarioId: string,
+  ambito: Ambito,
+  tiendas: Tienda[],
 ): EstadoFormulario {
   if (movimiento) {
+    const propia = movimiento.tienda_id ?? TIENDA_GENERAL;
+    // Un duplicado es un movimiento nuevo: si la tienda del original está
+    // archivada ya no lo admitiría, así que se propone la de la vista.
+    const archivada =
+      movimiento.tienda_id !== null &&
+      tiendas.find((t) => t.id === movimiento.tienda_id)?.estado === "archivada";
+    const medio = medioDe(movimiento);
+
     return {
       tipo: movimiento.tipo,
+      tienda: modo === "duplicar" && archivada ? tiendaDelAmbito(ambito) : propia,
       // Al duplicar, la fecha se pone a hoy: es justo para lo que sirve.
       fecha: modo === "duplicar" ? iso(new Date()) : movimiento.fecha,
       concepto: movimiento.concepto,
@@ -82,10 +131,8 @@ function estadoInicial(
       iva_tipo: Number(movimiento.iva_tipo),
       iva_importe: Number(movimiento.iva_importe),
       total: Number(movimiento.total),
-      anticipado_por: movimiento.anticipado_por,
-      cuenta_pago: movimiento.anticipado_por
-        ? null
-        : ((movimiento.cuenta_pago as CuentaPago | null) ?? null),
+      medio_pago: medio,
+      anticipado_por: medio === "bolsillo" ? movimiento.anticipado_por : null,
       num_pedidos:
         movimiento.num_pedidos === null ? "" : String(movimiento.num_pedidos),
       plataforma: (movimiento.plataforma as Plataforma | null) ?? null,
@@ -97,6 +144,7 @@ function estadoInicial(
 
   return {
     tipo: "gasto",
+    tienda: tiendaDelAmbito(ambito),
     fecha: iso(new Date()),
     concepto: "",
     categoria: null,
@@ -106,8 +154,9 @@ function estadoInicial(
     iva_tipo: 21,
     iva_importe: 0,
     total: null,
+    // Lo de siempre antes de la 0018: lo adelanta quien lo apunta.
+    medio_pago: "bolsillo",
     anticipado_por: usuarioId,
-    cuenta_pago: null,
     num_pedidos: "",
     plataforma: null,
     impresiones: null,
@@ -146,6 +195,7 @@ export function FormularioMovimiento({
   conceptos,
   usuarioId,
   ultimaTasa,
+  socioTarjetaId,
   alTerminar,
   alCambiarSuciedad,
 }: {
@@ -156,12 +206,16 @@ export function FormularioMovimiento({
   conceptos: string[];
   usuarioId: string;
   ultimaTasa: { fecha: string; tasa: number } | null;
+  /** Titular de la tarjeta del negocio. null = no hay, y la tarjeta no se ofrece. */
+  socioTarjetaId: string | null;
   /** Se llama al guardar y cerrar, o al cancelar. */
   alTerminar: () => void;
   alCambiarSuciedad: (sucio: boolean) => void;
 }) {
+  const ambito = useAmbito();
+  const tiendas = useTiendas();
   const [datos, setDatos] = useState<EstadoFormulario>(() =>
-    estadoInicial(movimiento, modo, usuarioId),
+    estadoInicial(movimiento, modo, usuarioId, ambito, tiendas),
   );
   const [modoTotal, setModoTotal] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
@@ -193,6 +247,41 @@ export function FormularioMovimiento({
   );
 
   const esGasto = datos.tipo === "gasto";
+
+  // Tiendas que admiten movimientos: activas y pausadas. La archivada solo
+  // aparece si es la del movimiento que se edita (cambiarla no es obligatorio).
+  const tiendasElegibles = useMemo(
+    () =>
+      tiendas.filter(
+        (t) =>
+          t.estado !== "archivada" ||
+          (modo === "editar" && t.id === movimiento?.tienda_id),
+      ),
+    [tiendas, modo, movimiento?.tienda_id],
+  );
+  const tiendaElegida = tiendas.find((t) => t.id === datos.tienda) ?? null;
+  const colorTiendaElegida =
+    datos.tienda === TIENDA_GENERAL
+      ? COLOR_GENERAL
+      : (tiendaElegida?.color ?? "transparent");
+
+  const socioTarjeta = socios.find((s) => s.id === socioTarjetaId) ?? null;
+  /** Quién queda como pagador con el medio elegido. */
+  const socioEfectivo =
+    datos.medio_pago === "tarjeta_daniel"
+      ? socioTarjetaId
+      : datos.medio_pago === "bolsillo"
+        ? datos.anticipado_por
+        : null;
+  // Un gasto ya reembolsado no puede cambiar de socio (lo rechaza el trigger).
+  // Se avisa antes de guardar con lo único que se sabe aquí: la marca.
+  const cambiaSocioReembolsado =
+    modo === "editar" &&
+    movimiento !== null &&
+    movimiento.tipo === "gasto" &&
+    movimiento.reembolsado &&
+    esGasto &&
+    socioEfectivo !== movimiento.anticipado_por;
   // Una venta del registro diario es la que lleva nº de pedidos: es lo que la
   // hace aparecer en /diario y contar en el ticket medio. Al editarla hay que
   // conservarlo (y poder cambiarlo); si se mandara vacío, la venta
@@ -252,6 +341,10 @@ export function FormularioMovimiento({
   function construirPayload() {
     return {
       tipo: datos.tipo,
+      tienda_id:
+        datos.tienda === TIENDA_GENERAL || datos.tienda === SIN_TIENDA
+          ? null
+          : datos.tienda,
       fecha: datos.fecha,
       concepto: datos.concepto,
       categoria_id:
@@ -264,8 +357,9 @@ export function FormularioMovimiento({
       iva_tipo: datos.iva_tipo,
       iva_importe: datos.iva_importe,
       total: datos.total ?? 0,
-      anticipado_por: esGasto ? datos.anticipado_por : null,
-      cuenta_pago: esGasto && !datos.anticipado_por ? datos.cuenta_pago : null,
+      medio_pago: esGasto ? datos.medio_pago : null,
+      anticipado_por:
+        esGasto && datos.medio_pago === "bolsillo" ? datos.anticipado_por : null,
       num_pedidos: muestraPedidos ? Number.parseInt(datos.num_pedidos, 10) : null,
       plataforma: esPublicidad ? datos.plataforma : null,
       impresiones: esPublicidad ? datos.impresiones : null,
@@ -278,6 +372,13 @@ export function FormularioMovimiento({
   function validar(): boolean {
     const nuevos: Record<string, string> = {};
 
+    if (datos.tienda === SIN_TIENDA) {
+      nuevos.tienda_id = esGasto
+        ? "Elige la tienda, o General / Sociedad si es un gasto compartido."
+        : "Elige la tienda del ingreso.";
+    } else if (!esGasto && datos.tienda === TIENDA_GENERAL) {
+      nuevos.tienda_id = "Un ingreso tiene que ser de una tienda.";
+    }
     if (!datos.concepto.trim()) nuevos.concepto = "Escribe un concepto.";
     if (!datos.categoria) nuevos.categoria_id = "Elige una categoría.";
     if (datos.base === null || datos.base <= 0) {
@@ -289,8 +390,13 @@ export function FormularioMovimiento({
     if (muestraPedidos && !/^\d+$/.test(datos.num_pedidos.trim())) {
       nuevos.num_pedidos = "Escribe el número de pedidos (0 o más).";
     }
-    if (esGasto && !datos.anticipado_por && !datos.cuenta_pago) {
-      nuevos.anticipado_por = "Indica quién pagó: un socio, el banco o PayPal.";
+    if (esGasto && !datos.medio_pago) {
+      nuevos.medio_pago = "Elige el medio de pago.";
+    } else if (esGasto && datos.medio_pago === "tarjeta_daniel" && !socioTarjetaId) {
+      nuevos.medio_pago =
+        "No hay ningún socio asignado a la tarjeta. Asígnalo en Ajustes o elige otro medio.";
+    } else if (esGasto && datos.medio_pago === "bolsillo" && !datos.anticipado_por) {
+      nuevos.anticipado_por = "Elige qué socio lo pagó de su bolsillo.";
     }
 
     setErrores(nuevos);
@@ -387,11 +493,80 @@ export function FormularioMovimiento({
               { valor: "gasto", etiqueta: "Gasto" },
               { valor: "ingreso", etiqueta: "Ingreso" },
             ]}
-            alCambiar={(valor) =>
+            alCambiar={(valor) => {
               // Al cambiar de tipo la categoría deja de tener sentido.
-              actualizar({ tipo: valor, categoria: null })
-            }
+              const cambios: Partial<EstadoFormulario> = { tipo: valor, categoria: null };
+              // Un ingreso no puede ir a General: se vuelve a pedir la tienda.
+              if (valor === "ingreso" && datos.tienda === TIENDA_GENERAL) {
+                const propuesta = tiendaDelAmbito(ambito);
+                cambios.tienda = propuesta === TIENDA_GENERAL ? SIN_TIENDA : propuesta;
+              }
+              // Un ingreso convertido en gasto necesita medio de pago.
+              if (valor === "gasto" && !datos.medio_pago) {
+                cambios.medio_pago = "bolsillo";
+                cambios.anticipado_por = usuarioId;
+              }
+              actualizar(cambios);
+            }}
           />
+        </div>
+
+        {/* 1b · TIENDA */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="campo-tienda" className="text-sm font-medium text-text-primary">
+            Tienda
+          </label>
+          <div className="relative">
+            <span
+              aria-hidden="true"
+              style={{ backgroundColor: colorTiendaElegida }}
+              className={cn(
+                "pointer-events-none absolute top-1/2 left-3 size-2.5 -translate-y-1/2 rounded-full",
+                datos.tienda === SIN_TIENDA && "ring-1 ring-text-muted",
+              )}
+            />
+            <select
+              id="campo-tienda"
+              value={datos.tienda}
+              onChange={(evento) => actualizar({ tienda: evento.target.value })}
+              aria-invalid={errores.tienda_id ? true : undefined}
+              aria-describedby={errores.tienda_id ? "error-tienda" : "ayuda-tienda"}
+              className="h-11 w-full rounded-lg border border-border bg-surface-2 pr-3 pl-8 text-base text-text-primary transition-colors outline-none focus-visible:border-brand aria-invalid:border-danger"
+            >
+              {datos.tienda === SIN_TIENDA ? (
+                <option value={SIN_TIENDA} disabled>
+                  Elige una tienda…
+                </option>
+              ) : null}
+              {tiendasElegibles.map((tienda) => (
+                <option key={tienda.id} value={tienda.id}>
+                  {tienda.nombre}
+                  {tienda.estado === "pausada"
+                    ? " (pausada)"
+                    : tienda.estado === "archivada"
+                      ? " (archivada)"
+                      : ""}
+                </option>
+              ))}
+              {/* Un ingreso siempre es de una tienda: General no se ofrece. */}
+              {esGasto ? (
+                <option value={TIENDA_GENERAL}>{NOMBRE_GENERAL}</option>
+              ) : null}
+            </select>
+          </div>
+          {errores.tienda_id ? (
+            <p id="error-tienda" role="alert" className="text-xs text-danger">
+              {errores.tienda_id}
+            </p>
+          ) : (
+            <p id="ayuda-tienda" className="text-xs text-text-secondary">
+              {datos.tienda === TIENDA_GENERAL
+                ? "Gasto compartido de la sociedad (Claude, Apimart…): no cuenta en ninguna tienda."
+                : esGasto
+                  ? "Elige General / Sociedad si el gasto es de todas las tiendas."
+                  : "Un ingreso siempre es de una tienda."}
+            </p>
+          )}
         </div>
 
         {/* 2 · FECHA */}
@@ -664,49 +839,118 @@ export function FormularioMovimiento({
           ) : null}
         </div>
 
-        {/* 8 · PAGADO POR (solo gastos): un socio de su bolsillo, o el
-               negocio desde el banco o desde PayPal (0017). */}
+        {/* 8 · MEDIO DE PAGO (solo gastos, 0018). Un solo campo decide de
+               dónde sale el dinero y, con él, si hay socio y cuál. */}
         {esGasto ? (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-text-primary">
-              Pagado por
+          <div className="flex flex-col gap-2">
+            <span id="etiqueta-medio" className="text-sm font-medium text-text-primary">
+              Medio de pago
             </span>
-            <SelectorSegmentado
-              nombre="anticipado"
-              etiquetaGrupo="Quién pagó el gasto"
-              valor={
-                datos.anticipado_por ??
-                (datos.cuenta_pago ? `cuenta:${datos.cuenta_pago}` : "")
-              }
-              opciones={[
-                ...socios.map((socio) => ({
-                  valor: socio.id,
-                  etiqueta: socio.nombre,
-                  color: socio.color,
-                })),
-                ...CUENTAS_PAGO.map((cuenta) => ({
-                  valor: `cuenta:${cuenta}`,
-                  etiqueta: ETIQUETA_CUENTA[cuenta],
-                })),
-              ]}
-              alCambiar={(valor) => {
-                if (valor.startsWith("cuenta:")) {
-                  actualizar({
-                    anticipado_por: null,
-                    cuenta_pago: valor.slice("cuenta:".length) as CuentaPago,
-                  });
-                } else {
-                  actualizar({ anticipado_por: valor, cuenta_pago: null });
-                }
-              }}
-            />
-            <p className="text-xs text-text-muted">
-              {datos.anticipado_por
-                ? "Lo adelantó un socio de su bolsillo: se le debe y cuenta en la liquidación."
-                : datos.cuenta_pago
-                  ? `Lo pagó el negocio: resta del saldo de ${ETIQUETA_CUENTA[datos.cuenta_pago]}.`
-                  : "Un socio de su bolsillo, o el negocio desde el banco o desde PayPal."}
-            </p>
+            <div
+              role="radiogroup"
+              aria-labelledby="etiqueta-medio"
+              aria-invalid={errores.medio_pago ? true : undefined}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            >
+              {MEDIOS_PAGO.map((medio) => {
+                const activo = datos.medio_pago === medio;
+                const sinTitular = medio === "tarjeta_daniel" && !socioTarjetaId;
+                return (
+                  <label
+                    key={medio}
+                    htmlFor={`medio-${medio}`}
+                    className={cn(
+                      "flex min-h-11 cursor-pointer flex-col gap-0.5 rounded-lg border px-3 py-2 transition-colors select-none",
+                      activo
+                        ? "border-brand bg-brand-soft"
+                        : "border-border bg-surface-2 hover:bg-surface",
+                      sinTitular && "pointer-events-none opacity-50",
+                    )}
+                  >
+                    <input
+                      id={`medio-${medio}`}
+                      type="radio"
+                      name="medio-pago"
+                      value={medio}
+                      checked={activo}
+                      disabled={sinTitular}
+                      onChange={() =>
+                        actualizar({
+                          medio_pago: medio,
+                          // Con bolsillo se propone quien lo apunta; con los
+                          // demás el socio lo decide el medio (o no hay).
+                          anticipado_por:
+                            medio === "bolsillo"
+                              ? (datos.anticipado_por ?? usuarioId)
+                              : datos.anticipado_por,
+                        })
+                      }
+                      className="sr-only"
+                    />
+                    <span
+                      className={cn(
+                        "text-sm font-medium",
+                        activo ? "text-text-primary" : "text-text-secondary",
+                      )}
+                    >
+                      {ETIQUETA_MEDIO[medio]}
+                    </span>
+                    <span className="text-xs text-text-muted">
+                      {sinTitular
+                        ? "Sin titular asignado en Ajustes."
+                        : DESCRIPCION_MEDIO[medio]}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {datos.medio_pago === "tarjeta_daniel" && socioTarjetaId ? (
+              // El socio de la tarjeta no se elige: lo fija la base de datos.
+              <p className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-secondary">
+                <Lock aria-hidden="true" className="size-4 shrink-0 text-text-muted" />
+                Pagado por
+                <span className="inline-flex items-center gap-1.5 font-medium text-text-primary">
+                  <span
+                    aria-hidden="true"
+                    style={{ backgroundColor: socioTarjeta?.color ?? "#6E6E73" }}
+                    className="size-2 rounded-full"
+                  />
+                  {socioTarjeta?.nombre ?? "el titular de la tarjeta"}
+                </span>
+                <span className="text-xs text-text-muted">· titular de la tarjeta</span>
+              </p>
+            ) : null}
+
+            {datos.medio_pago === "bolsillo" ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-text-secondary">¿Qué socio lo pagó?</span>
+                <SelectorSegmentado
+                  nombre="anticipado"
+                  etiquetaGrupo="Qué socio pagó el gasto de su bolsillo"
+                  valor={datos.anticipado_por ?? ""}
+                  opciones={socios.map((socio) => ({
+                    valor: socio.id,
+                    etiqueta: socio.nombre,
+                    color: socio.color,
+                  }))}
+                  alCambiar={(valor) => actualizar({ anticipado_por: valor })}
+                />
+              </div>
+            ) : null}
+
+            {cambiaSocioReembolsado ? (
+              <p role="alert" className="text-xs text-warning">
+                Este gasto ya está reembolsado: no puede cambiar de socio. Anula
+                antes el reembolso en Liquidación o deja el medio como estaba.
+              </p>
+            ) : null}
+
+            {errores.medio_pago ? (
+              <p role="alert" className="text-xs text-danger">
+                {errores.medio_pago}
+              </p>
+            ) : null}
             {errores.anticipado_por ? (
               <p role="alert" className="text-xs text-danger">
                 {errores.anticipado_por}

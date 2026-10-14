@@ -1,6 +1,7 @@
 import "server-only";
 
 import { crearClienteServidor } from "@/lib/supabase/server";
+import { filtrarPorAmbito, type Ambito } from "@/lib/ambito";
 
 export type Importacion = {
   id: string;
@@ -10,6 +11,8 @@ export type Importacion = {
   filas_importadas: number;
   filas_omitidas: number;
   importe_total_eur: number;
+  /** Una importación siempre es de una tienda (0018). */
+  tienda_id: string;
   created_at: string | null;
   autor: string;
   bloqueada: boolean;
@@ -29,14 +32,23 @@ export type MapeoGuardado = {
  * El bloqueo lo decide `fn_importacion_bloqueada` en Postgres: si alguno de sus
  * movimientos ya entró en un cierre aprobado o en un reembolso, deshacerla
  * descuadraría números dados por buenos.
+ *
+ * Con ámbito, solo las de esa tienda. En «General» no hay ninguna: una
+ * importación siempre es de una tienda.
  */
-export async function obtenerImportaciones(): Promise<Importacion[]> {
+export async function obtenerImportaciones(ambito?: Ambito): Promise<Importacion[]> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
+  const base = supabase
     .from("importaciones")
-    .select("*, autor:created_by ( nombre )")
-    .order("created_at", { ascending: false });
+    .select(
+      "id, nombre_archivo, origen, filas_totales, filas_importadas, filas_omitidas, importe_total_eur, tienda_id, created_at, autor:created_by ( nombre )",
+    );
+
+  const { data, error } = await (ambito ? filtrarPorAmbito(base, ambito) : base).order(
+    "created_at",
+    { ascending: false },
+  );
 
   if (error || !data) return [];
 
@@ -59,6 +71,7 @@ export async function obtenerImportaciones(): Promise<Importacion[]> {
         filas_importadas: Number(fila.filas_importadas ?? 0),
         filas_omitidas: Number(fila.filas_omitidas ?? 0),
         importe_total_eur: Number(fila.importe_total_eur ?? 0),
+        tienda_id: String(fila.tienda_id ?? ""),
         created_at: (fila.created_at as string) ?? null,
         autor: autor?.nombre ?? "",
         bloqueada: Boolean(info.bloqueada),
@@ -70,13 +83,19 @@ export async function obtenerImportaciones(): Promise<Importacion[]> {
   return conEstado;
 }
 
-export async function obtenerMapeos(): Promise<MapeoGuardado[]> {
+/**
+ * Mapeos guardados. Son de cada tienda (0018): el CSV de una tienda puede
+ * traer otras columnas que el de otra.
+ */
+export async function obtenerMapeos(ambito?: Ambito): Promise<MapeoGuardado[]> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
-    .from("mapeos_importacion")
-    .select("id, nombre, origen, config")
-    .order("nombre", { ascending: true });
+  const base = supabase.from("mapeos_importacion").select("id, nombre, origen, config");
+
+  const { data, error } = await (ambito ? filtrarPorAmbito(base, ambito) : base).order(
+    "nombre",
+    { ascending: true },
+  );
 
   if (error || !data) return [];
 

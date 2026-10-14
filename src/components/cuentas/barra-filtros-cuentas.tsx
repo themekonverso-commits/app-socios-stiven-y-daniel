@@ -12,6 +12,7 @@ import {
   type FiltrosCuentas,
 } from "@/lib/esquemas/cuentas";
 import { ESTADOS_CUENTA, PERIODICIDADES } from "@/lib/tipos-cuentas";
+import { useAmbito } from "@/components/tiendas/proveedor-tiendas";
 import type { Perfil } from "@/lib/tipos-db";
 
 const CLASE =
@@ -63,6 +64,11 @@ export function BarraFiltrosCuentas({
 
   const activos = hayFiltrosCuentasActivos(filtros);
   const query = escribirFiltrosCuentas(filtros);
+  // El CSV exporta lo que se ve: mismos filtros y mismo ámbito. Va como
+  // `ambito` y no como `tienda` para no tocar la tienda recordada (cookie).
+  const ambito = useAmbito();
+  const queryCsv = new URLSearchParams(query);
+  queryCsv.set("ambito", ambito.slug);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -150,7 +156,7 @@ export function BarraFiltrosCuentas({
       ) : null}
 
       <a
-        href={`/api/cuentas/exportar${query ? `?${query}` : ""}`}
+        href={`/api/cuentas/exportar?${queryCsv.toString()}`}
         className="flex min-h-11 items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 text-sm font-medium text-text-primary transition-colors hover:bg-surface"
       >
         <Download aria-hidden="true" className="size-4" />

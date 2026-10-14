@@ -37,6 +37,8 @@ import {
   eliminarCuenta,
   registrarPagoCuenta,
 } from "@/app/acciones/cuentas";
+import { useTiendas } from "@/components/tiendas/proveedor-tiendas";
+import { nombreTienda } from "@/lib/ambito";
 import { formatearEuros, formatearFecha } from "@/lib/formato";
 import type { CuentaConCoste } from "@/lib/tipos-cuentas";
 
@@ -47,6 +49,7 @@ export function MenuCuenta({ cuenta }: { cuenta: CuentaConCoste }) {
   const [, iniciarTransicion] = useTransition();
 
   const sinCategoria = !cuenta.categoria_gasto_id;
+  const tiendas = useTiendas();
 
   function pagar() {
     iniciarTransicion(async () => {
@@ -56,10 +59,12 @@ export function MenuCuenta({ cuenta }: { cuenta: CuentaConCoste }) {
         return;
       }
       const datos = resultado.datos;
+      // El gasto va a la tienda de la cuenta (fn_registrar_pago_cuenta).
+      const donde = nombreTienda(cuenta.tienda_id, tiendas);
       toast.success(
         datos?.renovacion_avanzada && datos.fecha_renovacion
-          ? `Gasto de ${formatearEuros(datos.importe_eur)} registrado. La renovación pasa al ${formatearFecha(datos.fecha_renovacion)}.`
-          : `Gasto de ${formatearEuros(datos?.importe_eur ?? 0)} registrado.`,
+          ? `Gasto de ${formatearEuros(datos.importe_eur)} registrado en ${donde}. La renovación pasa al ${formatearFecha(datos.fecha_renovacion)}.`
+          : `Gasto de ${formatearEuros(datos?.importe_eur ?? 0)} registrado en ${donde}.`,
       );
       router.refresh();
     });

@@ -5,7 +5,9 @@ import { eachDayOfInterval, format, subDays } from "date-fns";
 import { CircleCheck, Clock } from "lucide-react";
 
 import { MenuAcciones } from "@/components/movimientos/menu-acciones";
+import { useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { cn } from "@/lib/utils";
+import { colorTienda, nombreTienda } from "@/lib/ambito";
 import {
   formatearEntero,
   formatearEuros,
@@ -20,8 +22,11 @@ import type { MovimientoConRelaciones } from "@/lib/tipos-db";
 const iso = (fecha: Date) => format(fecha, "yyyy-MM-dd");
 const fechaCorta = (fecha: string) => format(new Date(fecha), "dd/MM");
 
+/** Una fila de la tabla: un día de una tienda (o un día sin registro). */
 type Dia = {
+  clave: string;
   fecha: string;
+  tiendaId: string | null;
   shopify: MovimientoConRelaciones[];
   paypal: MovimientoConRelaciones[];
 };
@@ -39,36 +44,57 @@ function metodoDe(fila: MovimientoConRelaciones): MetodoCobro {
  * Se pintan TODOS los días del rango, tengan registro o no: los huecos son la
  * información más útil de esta tabla, porque señalan los días que se olvidó
  * apuntar. Junto a cada método, si sus ventas ya las cubre un cobro de ese
- * mismo método o siguen pendientes.
+ * mismo método (y de la misma tienda) o siguen pendientes.
+ *
+ * Con `conTienda` (vista «Todas»), un día con ventas en varias tiendas ocupa
+ * una fila por tienda, con su columna. Los días vacíos siguen siendo una sola
+ * fila: ninguna tienda apuntó nada.
  */
 export function TablaDiario({
   filas,
   cobertura,
+  conTienda = false,
 }: {
   filas: MovimientoConRelaciones[];
   cobertura: CoberturaVentas[];
+  conTienda?: boolean;
 }) {
+  const tiendas = useTiendas();
+
   const dias = useMemo<Dia[]>(() => {
     const hoy = new Date();
-    const porFecha = new Map<string, Dia>();
+    const porFecha = new Map<string, Map<string, Dia>>();
     for (const fila of filas) {
-      const dia = porFecha.get(fila.fecha) ?? { fecha: fila.fecha, shopify: [], paypal: [] };
+      const delDia = porFecha.get(fila.fecha) ?? new Map<string, Dia>();
+      const claveTienda = fila.tienda_id ?? "";
+      const dia = delDia.get(claveTienda) ?? {
+        clave: `${fila.fecha}|${claveTienda}`,
+        fecha: fila.fecha,
+        tiendaId: fila.tienda_id,
+        shopify: [],
+        paypal: [],
+      };
       if (metodoDe(fila) === "paypal") dia.paypal.push(fila);
       else dia.shopify.push(fila);
-      porFecha.set(fila.fecha, dia);
+      delDia.set(claveTienda, dia);
+      porFecha.set(fila.fecha, delDia);
     }
 
     return eachDayOfInterval({ start: subDays(hoy, 29), end: hoy })
-      .map((dia) => {
+      .reverse()
+      .flatMap((dia) => {
         const clave = iso(dia);
-        return porFecha.get(clave) ?? { fecha: clave, shopify: [], paypal: [] };
-      })
-      .reverse();
-  }, [filas]);
+        const delDia = porFecha.get(clave);
+        if (!delDia) return [{ clave, fecha: clave, tiendaId: null, shopify: [], paypal: [] }];
+        return [...delDia.values()].sort((a, b) =>
+          nombreTienda(a.tiendaId, tiendas).localeCompare(nombreTienda(b.tiendaId, tiendas), "es"),
+        );
+      });
+  }, [filas, tiendas]);
 
   const cubiertas = useMemo(() => {
     const mapa = new Map<string, CoberturaVentas>();
-    for (const c of cobertura) mapa.set(`${c.fecha}|${c.metodo}`, c);
+    for (const c of cobertura) mapa.set(`${c.fecha}|${c.tiendaId ?? ""}|${c.metodo}`, c);
     return mapa;
   }, [cobertura]);
 
@@ -87,7 +113,12 @@ export function TablaDiario({
   const ticketMedioGlobal =
     totales.pedidos > 0 ? redondear2(totales.eur / totales.pedidos) : 0;
 
-  function celdaMetodo(fecha: string, metodo: MetodoCobro, movimientos: MovimientoConRelaciones[]) {
+  function celdaMetodo(
+    fecha: string,
+    tiendaId: string | null,
+    metodo: MetodoCobro,
+    movimientos: MovimientoConRelaciones[],
+  ) {
     if (movimientos.length === 0) {
       return (
         <td className="px-4 py-2.5 text-right text-text-muted">
@@ -100,7 +131,7 @@ export function TablaDiario({
     const eur = redondear2(suma(movimientos, "total_eur"));
     const pedidos = suma(movimientos, "num_pedidos");
     const usd = movimientos.find((m) => m.divisa === "USD");
-    const estado = cubiertas.get(`${fecha}|${metodo}`);
+    const estado = cubiertas.get(`${fecha}|${tiendaId ?? ""}|${metodo}`);
 
     return (
       <td className="px-4 py-2.5">
@@ -147,6 +178,7 @@ export function TablaDiario({
           <thead>
             <tr className="border-b border-border bg-surface text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
               <th scope="col" className="px-4 py-3">Fecha</th>
+              {conTienda ? <th scope="col" className="px-4 py-3">Tienda</th> : null}
               <th scope="col" className="px-4 py-3 text-right">Shopify</th>
               <th scope="col" className="px-4 py-3 text-right">PayPal</th>
               <th scope="col" className="px-4 py-3 text-right">Total</th>
@@ -165,7 +197,7 @@ export function TablaDiario({
 
               return (
                 <tr
-                  key={dia.fecha}
+                  key={dia.clave}
                   className={cn(
                     "border-b border-border align-top last:border-b-0",
                     hay ? "hover:bg-surface" : "bg-surface/40",
@@ -177,10 +209,23 @@ export function TablaDiario({
                     </span>
                   </td>
 
+                  {hay && conTienda ? (
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center gap-1.5 text-text-secondary">
+                        <span
+                          aria-hidden="true"
+                          style={{ backgroundColor: colorTienda(dia.tiendaId, tiendas) }}
+                          className="size-2 shrink-0 rounded-full"
+                        />
+                        {nombreTienda(dia.tiendaId, tiendas)}
+                      </span>
+                    </td>
+                  ) : null}
+
                   {hay ? (
                     <>
-                      {celdaMetodo(dia.fecha, "shopify_payments", dia.shopify)}
-                      {celdaMetodo(dia.fecha, "paypal", dia.paypal)}
+                      {celdaMetodo(dia.fecha, dia.tiendaId, "shopify_payments", dia.shopify)}
+                      {celdaMetodo(dia.fecha, dia.tiendaId, "paypal", dia.paypal)}
                       <td className="cifra px-4 py-2.5 text-right font-medium text-success">
                         {formatearEuros(eur)}
                       </td>
@@ -192,7 +237,7 @@ export function TablaDiario({
                       </td>
                     </>
                   ) : (
-                    <td colSpan={5} className="px-4 py-2.5">
+                    <td colSpan={conTienda ? 6 : 5} className="px-4 py-2.5">
                       <span className="inline-flex items-center gap-2 text-xs text-text-muted">
                         <span aria-hidden="true" className="h-px w-6 bg-border" />
                         Sin registro
@@ -212,6 +257,7 @@ export function TablaDiario({
                   ({totales.dias} de 30 días)
                 </span>
               </td>
+              {conTienda ? <td aria-hidden="true" /> : null}
               <td className="cifra px-4 py-3 text-right text-text-primary">
                 {formatearEuros(totales.shopify)}
               </td>

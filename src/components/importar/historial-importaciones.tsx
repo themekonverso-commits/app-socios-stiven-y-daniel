@@ -20,16 +20,28 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { deshacerImportacion } from "@/app/acciones/importacion";
+import { colorTienda, nombreTienda as nombreDeTienda } from "@/lib/ambito";
 import { formatearEntero, formatearEuros, formatearFecha } from "@/lib/formato";
 import type { Importacion } from "@/lib/consultas-importacion";
 
+/**
+ * Historial de importaciones del ámbito. En «Todas» (`conTienda`) cada fila
+ * dice de qué tienda es.
+ */
 export function HistorialImportaciones({
   importaciones,
+  conTienda = false,
+  nombreTienda = null,
 }: {
   importaciones: Importacion[];
+  conTienda?: boolean;
+  /** Tienda activa, para el estado vacío. */
+  nombreTienda?: string | null;
 }) {
   const router = useRouter();
+  const tiendas = useTiendas();
   const [aDeshacer, setADeshacer] = useState<Importacion | null>(null);
   const [pendiente, iniciarTransicion] = useTransition();
 
@@ -51,7 +63,9 @@ export function HistorialImportaciones({
   if (importaciones.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-text-secondary">
-        Todavía no has importado ningún archivo.
+        {nombreTienda
+          ? `Todavía no has importado ningún archivo en ${nombreTienda}.`
+          : "Todavía no has importado ningún archivo."}
       </p>
     );
   }
@@ -64,6 +78,7 @@ export function HistorialImportaciones({
           <thead>
             <tr className="border-b border-border bg-surface text-left text-xs font-semibold tracking-wide text-text-muted uppercase">
               <th scope="col" className="px-3 py-2.5">Archivo</th>
+              {conTienda ? <th scope="col" className="px-3 py-2.5">Tienda</th> : null}
               <th scope="col" className="px-3 py-2.5">Origen</th>
               <th scope="col" className="px-3 py-2.5">Fecha</th>
               <th scope="col" className="px-3 py-2.5 text-right">Importadas</th>
@@ -81,6 +96,18 @@ export function HistorialImportaciones({
                 <td className="max-w-[220px] truncate px-3 py-2.5 font-medium text-text-primary">
                   {fila.nombre_archivo}
                 </td>
+                {conTienda ? (
+                  <td className="px-3 py-2.5">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-text-secondary">
+                      <span
+                        aria-hidden="true"
+                        style={{ backgroundColor: colorTienda(fila.tienda_id, tiendas) }}
+                        className="size-2 shrink-0 rounded-full"
+                      />
+                      {nombreDeTienda(fila.tienda_id, tiendas)}
+                    </span>
+                  </td>
+                ) : null}
                 <td className="px-3 py-2.5">
                   <span className="inline-flex rounded-md bg-surface-2 px-2 py-0.5 text-xs text-text-secondary">
                     {fila.origen ?? "CSV"}

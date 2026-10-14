@@ -1,36 +1,43 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { LoaderCircle } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, CreditCard, LoaderCircle, Target } from "lucide-react";
 import { toast } from "sonner";
 
 import { CampoImporte } from "@/components/campos/campo-importe";
 import { SelectorFecha } from "@/components/campos/selector-fecha";
+import { useHrefConTienda } from "@/components/tiendas/proveedor-tiendas";
 import { guardarAjustes } from "@/app/acciones/ajustes";
 import { formatearEuros } from "@/lib/formato";
-import type { Objetivos, SaldoInicial } from "@/lib/consultas-kpi";
+import type { SaldoInicial } from "@/lib/consultas-kpi";
+import type { CupoTarjeta } from "@/lib/cupo";
 
+/**
+ * Ajustes de la sociedad (globales, iguales en todas las tiendas): saldos de
+ * partida del banco y de PayPal. Los objetivos mensuales se fijan en cada
+ * tienda, en /tiendas; el cupo de la tarjeta se enseña aquí solo de lectura.
+ */
 export function FormularioAjustes({
   saldoInicial,
   saldoInicialPaypal,
-  objetivos,
   saldoActual,
   saldoPaypalActual,
+  cupo,
 }: {
   saldoInicial: SaldoInicial;
   saldoInicialPaypal: SaldoInicial;
-  objetivos: Objetivos;
   saldoActual: number;
   saldoPaypalActual: number;
+  cupo: CupoTarjeta;
 }) {
+  const conTienda = useHrefConTienda();
   const [importe, setImporte] = useState<number | null>(saldoInicial.importe);
   const [fecha, setFecha] = useState(saldoInicial.fecha);
   const [importePaypal, setImportePaypal] = useState<number | null>(
     saldoInicialPaypal.importe,
   );
   const [fechaPaypal, setFechaPaypal] = useState(saldoInicialPaypal.fecha);
-  const [facturacion, setFacturacion] = useState<number | null>(objetivos.facturacion);
-  const [beneficio, setBeneficio] = useState<number | null>(objetivos.beneficio);
   const [guardando, iniciarGuardado] = useTransition();
 
   function enviar(evento: React.FormEvent) {
@@ -42,8 +49,6 @@ export function FormularioAjustes({
         saldo_fecha: fecha,
         paypal_importe: importePaypal ?? 0,
         paypal_fecha: fechaPaypal,
-        objetivo_facturacion: facturacion ?? 0,
-        objetivo_beneficio: beneficio ?? 0,
       });
 
       if (!resultado.ok) {
@@ -132,45 +137,68 @@ export function FormularioAjustes({
       </section>
 
       <section className="rounded-xl border border-border bg-surface p-4 sm:p-5">
-        <h2 className="text-base font-semibold text-text-primary">
-          Objetivos mensuales
-        </h2>
-        <p className="mt-0.5 text-xs text-text-secondary">
-          Se usan en las barras de progreso de KPIs. Déjalos a cero si todavía no
-          quieres fijarlos.
-        </p>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="objetivo-facturacion"
-              className="text-sm font-medium text-text-primary"
-            >
-              Objetivo de facturación
-            </label>
-            <CampoImporte
-              id="objetivo-facturacion"
-              valor={facturacion}
-              alCambiar={setFacturacion}
-              sufijo="€"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="objetivo-beneficio"
-              className="text-sm font-medium text-text-primary"
-            >
-              Objetivo de beneficio
-            </label>
-            <CampoImporte
-              id="objetivo-beneficio"
-              valor={beneficio}
-              alCambiar={setBeneficio}
-              sufijo="€"
-            />
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-text-secondary"
+          >
+            <CreditCard className="size-4.5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-text-primary">
+              Cupo de la tarjeta de {cupo.socio_nombre ?? "Daniel"}
+            </h2>
+            <p className="mt-0.5 text-xs text-text-secondary">
+              Cuenta todos los gastos pagados con la tarjeta, de cualquier tienda y de
+              General. Ya no depende de la categoría.
+            </p>
           </div>
         </div>
+        <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+          <div className="rounded-lg border border-border bg-base px-3 py-2">
+            <dt className="text-xs text-text-secondary">Cupo acordado</dt>
+            <dd className="cifra mt-0.5 font-semibold text-text-primary">
+              {formatearEuros(cupo.limite)}
+            </dd>
+          </div>
+          <div className="rounded-lg border border-border bg-base px-3 py-2">
+            <dt className="text-xs text-text-secondary">Titular</dt>
+            <dd className="mt-0.5 font-semibold text-text-primary">
+              {cupo.socio_nombre ?? "Sin asignar"}
+            </dd>
+          </div>
+          <div className="rounded-lg border border-border bg-base px-3 py-2">
+            <dt className="text-xs text-text-secondary">Aviso a partir de</dt>
+            <dd className="cifra mt-0.5 font-semibold text-text-primary">
+              {cupo.aviso_pct} %
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-xl border border-dashed border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand"
+          >
+            <Target className="size-4.5" />
+          </span>
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Objetivos mensuales</h2>
+            <p className="mt-0.5 text-xs text-text-secondary">
+              Ahora son de cada tienda: cada una tiene su objetivo de facturación y de
+              beneficio. En «Todas» se suman.
+            </p>
+          </div>
+        </div>
+        <Link
+          href={conTienda("/tiendas")}
+          className="flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface-2 px-4 text-sm font-medium text-text-primary transition-colors hover:bg-surface"
+        >
+          Editarlos en Tiendas
+          <ArrowRight aria-hidden="true" className="size-4" />
+        </Link>
       </section>
 
       <div>

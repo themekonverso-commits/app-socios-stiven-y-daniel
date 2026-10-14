@@ -32,6 +32,8 @@ export const esquemaCuenta = z
       .nullable()
       .optional(),
     titular_id: z.uuid().nullable().optional(),
+    /** Tienda de la cuenta (0018). null = General / Sociedad. Su pago va ahí. */
+    tienda_id: z.uuid().nullable().optional(),
     coste: z.number().finite().min(0).max(9_999_999).nullable().optional(),
     divisa: z.enum(["EUR", "USD"]),
     periodicidad: z.enum(PERIODICIDADES),
@@ -76,6 +78,11 @@ export const esquemaNota = z.object({
     .optional(),
   fijada: z.boolean().default(false),
   archivada: z.boolean().default(false),
+  /**
+   * Tienda de la nota (0018). null = General. Sin el campo (undefined) no se
+   * toca la que ya tiene.
+   */
+  tienda_id: z.uuid().nullable().optional(),
 });
 
 export type DatosNota = z.infer<typeof esquemaNota>;

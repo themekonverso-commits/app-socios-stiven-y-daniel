@@ -109,3 +109,91 @@ export function esMejora(
   if (valor === null || valor === 0) return null;
   return sentido === "mas-es-mejor" ? valor > 0 : valor < 0;
 }
+
+/**
+ * Parámetro de URL del interruptor de reparto (`?reparto=1`). Apagado si no
+ * está. Vive aquí y no en el componente: una constante exportada desde un
+ * archivo "use client" llega al servidor como referencia, no como texto.
+ */
+export const PARAM_REPARTO = "reparto";
+
+/**
+ * Reparto VISUAL de los gastos de General entre las tiendas (interruptor
+ * «Incluir parte de gastos generales» del dashboard de una tienda).
+ *
+ * A cada tienda le toca una parte de los gastos de General del periodo
+ * proporcional a lo que facturó en ese mismo periodo:
+ *
+ *     imputado = gastos de General × facturación de la tienda / facturación de todas
+ *
+ * No escribe nada ni cambia ningún número de la base de datos: la
+ * liquidación y la tesorería siguen igual. Es solo para ver cuánto ganaría
+ * la tienda si cargara con su parte de lo compartido.
+ *
+ * `motivo` explica por qué no se reparte cuando no se puede: sin gastos de
+ * General no hay nada que repartir, y si ninguna tienda facturó no existe
+ * proporción honesta (repartir a partes iguales sería inventarse un criterio).
+ */
+export type Reparto =
+  | {
+      aplica: true;
+      /** Lo que le toca a esta tienda, ya redondeado a céntimos. */
+      imputado: number;
+      gastosGeneral: number;
+      facturacionTienda: number;
+      facturacionTotal: number;
+      /** Peso de la tienda sobre la facturación total, en %. */
+      pct: number;
+    }
+  | {
+      aplica: false;
+      motivo: "sin-gastos-general" | "sin-facturacion";
+      gastosGeneral: number;
+    };
+
+export function calcularReparto(
+  filas: { tiendaId: string | null; ingresos: number; gastos: number }[],
+  tiendaId: string,
+): Reparto {
+  const gastosGeneral = redondear2(
+    filas.find((f) => f.tiendaId === null)?.gastos ?? 0,
+  );
+  if (gastosGeneral <= 0) {
+    return { aplica: false, motivo: "sin-gastos-general", gastosGeneral: 0 };
+  }
+
+  // Solo facturan las tiendas: General nunca tiene ingresos.
+  const facturacionTotal = redondear2(
+    filas
+      .filter((f) => f.tiendaId !== null)
+      .reduce((suma, f) => suma + Math.max(f.ingresos, 0), 0),
+  );
+  if (facturacionTotal <= 0) {
+    return { aplica: false, motivo: "sin-facturacion", gastosGeneral };
+  }
+
+  const facturacionTienda = redondear2(
+    Math.max(filas.find((f) => f.tiendaId === tiendaId)?.ingresos ?? 0, 0),
+  );
+
+  return {
+    aplica: true,
+    imputado: redondear2((gastosGeneral * facturacionTienda) / facturacionTotal),
+    gastosGeneral,
+    facturacionTienda,
+    facturacionTotal,
+    pct: redondear1((facturacionTienda / facturacionTotal) * 100),
+  };
+}
+
+/** El resumen de la tienda con su parte de General sumada a los gastos. */
+export function aplicarReparto<
+  R extends { gastos: number; beneficio: number },
+>(resumen: R, reparto: Reparto): R {
+  if (!reparto.aplica || reparto.imputado === 0) return resumen;
+  return {
+    ...resumen,
+    gastos: redondear2(resumen.gastos + reparto.imputado),
+    beneficio: redondear2(resumen.beneficio - reparto.imputado),
+  };
+}

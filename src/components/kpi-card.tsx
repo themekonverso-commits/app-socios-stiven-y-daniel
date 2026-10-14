@@ -35,6 +35,12 @@ export type KpiCardProps = {
    * PayPal 30 €». `apagado` las pinta en gris (un dato aparte, no un sumando).
    */
   desglose?: { etiqueta: string; valor: string; apagado?: boolean }[];
+  /**
+   * Una segunda cifra al pie, separada de la principal: algo relacionado pero
+   * que NO es un sumando (el beneficio acumulado de una tienda bajo la caja
+   * de la sociedad).
+   */
+  pie?: { etiqueta: string; valor: string; nota?: string; claseValor?: string };
   icono?: LucideIcon;
   /** Solo UNA por pantalla, y siempre la primera del grid. */
   destacada?: boolean;
@@ -52,6 +58,7 @@ export function KpiCard({
   nota,
   enlace,
   desglose,
+  pie,
   icono: Icono,
   destacada = false,
   className,
@@ -169,6 +176,39 @@ export function KpiCard({
             </div>
           ))}
         </dl>
+      ) : null}
+
+      {pie ? (
+        <div
+          className={cn(
+            "mt-3 border-t pt-2.5",
+            destacada ? "border-white/25" : "border-border",
+          )}
+        >
+          <div className="flex items-baseline justify-between gap-3 text-xs">
+            <span className={destacada ? "text-white/90" : "text-text-secondary"}>
+              {pie.etiqueta}
+            </span>
+            <span
+              className={cn(
+                "cifra text-sm font-semibold",
+                destacada ? "text-white" : (pie.claseValor ?? "text-text-primary"),
+              )}
+            >
+              {pie.valor}
+            </span>
+          </div>
+          {pie.nota ? (
+            <p
+              className={cn(
+                "mt-1 text-[11px]",
+                destacada ? "text-white/80" : "text-text-muted",
+              )}
+            >
+              {pie.nota}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {variacion !== undefined ? (

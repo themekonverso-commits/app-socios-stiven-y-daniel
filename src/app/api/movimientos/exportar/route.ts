@@ -4,6 +4,9 @@ import { crearClienteServidor } from "@/lib/supabase/server";
 import { leerFiltros } from "@/lib/esquemas/filtros";
 import { obtenerMovimientosParaExportar } from "@/lib/consultas";
 import { formatearFecha } from "@/lib/formato";
+import { PARAM_TIENDA, nombreTienda, resolverAmbito } from "@/lib/ambito";
+import { ETIQUETA_MEDIO } from "@/lib/medios-pago";
+import { obtenerAmbito, obtenerTiendas } from "@/lib/tiendas";
 
 /**
  * Exportación a CSV pensada para la gestoría.
@@ -11,10 +14,14 @@ import { formatearFecha } from "@/lib/formato";
  * Separador punto y coma, decimales con coma y UTF-8 con BOM: es la única
  * combinación con la que el Excel en español abre el archivo bien de primeras,
  * sin pasar por el asistente de importación.
+ *
+ * Exporta lo mismo que se ve: los mismos filtros y la misma tienda que la
+ * lista (el enlace lleva `?tienda=`; sin él, la tienda recordada).
  */
 
 const COLUMNAS = [
   "Fecha",
+  "Tienda",
   "Tipo",
   "Concepto",
   "Categoría",
@@ -25,6 +32,7 @@ const COLUMNAS = [
   "Total",
   "Tasa cambio",
   "Total EUR",
+  "Medio de pago",
   "Anticipado por",
   "Reembolsado",
   "Notas",
@@ -59,13 +67,18 @@ export async function GET(request: NextRequest) {
 
   const params = Object.fromEntries(request.nextUrl.searchParams.entries());
   const filtros = leerFiltros(params);
-  const filas = await obtenerMovimientosParaExportar(filtros);
+  const tiendas = await obtenerTiendas();
+  const ambito = params[PARAM_TIENDA]
+    ? resolverAmbito(params[PARAM_TIENDA], tiendas)
+    : await obtenerAmbito();
+  const filas = await obtenerMovimientosParaExportar(filtros, ambito);
 
   const lineas = [
     COLUMNAS.join(";"),
     ...filas.map((fila) =>
       [
         celda(formatearFecha(fila.fecha)),
+        celda(nombreTienda(fila.tienda_id, tiendas)),
         celda(fila.tipo === "ingreso" ? "Ingreso" : "Gasto"),
         celda(fila.concepto),
         celda(fila.categorias?.nombre ?? ""),
@@ -76,6 +89,7 @@ export async function GET(request: NextRequest) {
         numero(fila.total),
         numero(fila.tasa_cambio, 6),
         numero(fila.total_eur),
+        celda(fila.medio_pago ? ETIQUETA_MEDIO[fila.medio_pago] : ""),
         celda(fila.anticipado?.nombre ?? ""),
         celda(fila.reembolsado ? "Sí" : "No"),
         celda(fila.notas ?? ""),
@@ -85,7 +99,7 @@ export async function GET(request: NextRequest) {
 
   // El BOM es lo que le dice a Excel que el archivo es UTF-8.
   const contenido = `﻿${lineas.join("\r\n")}\r\n`;
-  const nombre = `movimientos_${filtros.desde}_a_${filtros.hasta}.csv`;
+  const nombre = `movimientos_${ambito.slug}_${filtros.desde}_a_${filtros.hasta}.csv`;
 
   return new NextResponse(contenido, {
     headers: {

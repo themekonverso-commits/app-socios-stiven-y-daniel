@@ -17,10 +17,16 @@ import { CampoImporte } from "@/components/campos/campo-importe";
 import { SelectorFecha } from "@/components/campos/selector-fecha";
 import { registrarReembolso } from "@/app/acciones/liquidacion";
 import { SelectorSegmentado } from "@/components/campos/selector-segmentado";
-import { CUENTAS_PAGO, ETIQUETA_CUENTA, type CuentaPago } from "@/lib/metodos-cobro";
+import { CeldaTienda } from "@/components/liquidacion/celda-tienda";
 import { formatearEuros } from "@/lib/formato";
 import { redondear2 } from "@/lib/dinero";
-import { METODOS_REEMBOLSO, type AnticipoPendiente } from "@/lib/tipos-liquidacion";
+import {
+  CUENTAS_REEMBOLSO,
+  ETIQUETA_CUENTA_REEMBOLSO,
+  METODOS_REEMBOLSO,
+  type AnticipoPendiente,
+  type CuentaReembolso,
+} from "@/lib/tipos-liquidacion";
 
 const iso = (fecha: Date) => format(fecha, "yyyy-MM-dd");
 
@@ -91,7 +97,7 @@ export function DialogoReembolso({
   const [fecha, setFecha] = useState(() => iso(new Date()));
   const [importe, setImporte] = useState<number | null>(totalSeleccionado);
   const [metodo, setMetodo] = useState<string>("transferencia");
-  const [cuenta, setCuenta] = useState<CuentaPago>("banco");
+  const [cuenta, setCuenta] = useState<CuentaReembolso>("banco");
   const [notas, setNotas] = useState("");
   const [guardando, iniciarGuardado] = useTransition();
 
@@ -214,34 +220,50 @@ export function DialogoReembolso({
               </div>
             </div>
 
-            {esParcial ? (
-              <div className="rounded-lg border border-border bg-base p-3">
-                <p className="text-xs font-medium text-text-primary">
-                  Reembolso parcial: así se reparte entre los anticipos
-                </p>
-                <ul className="mt-2 flex flex-col gap-1.5">
+            {/* Siempre a la vista: qué anticipos cubre y de qué tienda es cada
+                uno. Un reembolso puede mezclar tiendas y General. */}
+            <div className="rounded-lg border border-border bg-base p-3">
+              <p className="text-xs font-medium text-text-primary">
+                {esParcial
+                  ? "Reembolso parcial: así se reparte entre los anticipos"
+                  : "Anticipos que se reembolsan"}
+              </p>
+              <table className="mt-2 w-full text-xs">
+                <caption className="sr-only">Reparto del reembolso por anticipo</caption>
+                <thead>
+                  <tr className="text-left text-[11px] tracking-wide text-text-muted uppercase">
+                    <th scope="col" className="pb-1 font-medium">Concepto</th>
+                    <th scope="col" className="pb-1 font-medium">Tienda</th>
+                    <th scope="col" className="pb-1 text-right font-medium">Se cubre</th>
+                  </tr>
+                </thead>
+                <tbody>
                   {desglose.map((fila) => (
-                    <li
-                      key={fila.anticipo.id}
-                      className="flex items-baseline gap-2 text-xs"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-text-secondary">
+                    <tr key={fila.anticipo.id} className="align-baseline">
+                      <td className="max-w-[140px] truncate py-0.5 pr-2 text-text-secondary">
                         {fila.anticipo.concepto}
-                      </span>
-                      <span className="cifra shrink-0 text-text-primary">
+                      </td>
+                      <td className="max-w-[120px] py-0.5 pr-2">
+                        <CeldaTienda anticipo={fila.anticipo} />
+                      </td>
+                      <td className="cifra py-0.5 text-right whitespace-nowrap text-text-primary">
                         {formatearEuros(fila.asignado)}
-                      </span>
-                      <span className="cifra w-24 shrink-0 text-right text-text-muted">
-                        de {formatearEuros(fila.anticipo.pendiente_eur)}
-                      </span>
-                    </li>
+                        {esParcial ? (
+                          <span className="text-text-muted">
+                            {" "}de {formatearEuros(fila.anticipo.pendiente_eur)}
+                          </span>
+                        ) : null}
+                      </td>
+                    </tr>
                   ))}
-                </ul>
+                </tbody>
+              </table>
+              {esParcial ? (
                 <p className="mt-2 border-t border-border pt-2 text-xs text-text-muted">
                   Lo que no se cubra sigue figurando como pendiente.
                 </p>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
 
             <div className="flex flex-col gap-1.5">
               <label htmlFor="reem-metodo" className="text-sm font-medium text-text-primary">
@@ -267,7 +289,10 @@ export function DialogoReembolso({
                 nombre="reem-cuenta"
                 etiquetaGrupo="Cuenta del negocio de la que sale el reembolso"
                 valor={cuenta}
-                opciones={CUENTAS_PAGO.map((c) => ({ valor: c, etiqueta: ETIQUETA_CUENTA[c] }))}
+                opciones={CUENTAS_REEMBOLSO.map((c) => ({
+                  valor: c,
+                  etiqueta: ETIQUETA_CUENTA_REEMBOLSO[c],
+                }))}
                 alCambiar={setCuenta}
               />
             </div>

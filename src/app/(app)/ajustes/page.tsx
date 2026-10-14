@@ -1,13 +1,15 @@
 import { EncabezadoPagina } from "@/components/encabezado-pagina";
 import { FormularioAjustes } from "@/components/ajustes/formulario-ajustes";
 import { obtenerAjustes, obtenerTesoreria } from "@/lib/consultas-kpi";
+import { obtenerCupoTarjeta } from "@/lib/consultas-cupo";
 
 export const metadata = { title: "Ajustes" };
 
 export default async function PaginaAjustes() {
-  const [{ saldoInicial, saldoInicialPaypal, objetivos }, tesoreria] = await Promise.all([
+  const [{ saldoInicial, saldoInicialPaypal }, tesoreria, cupo] = await Promise.all([
     obtenerAjustes(),
     obtenerTesoreria(),
+    obtenerCupoTarjeta(),
   ]);
 
   return (
@@ -15,15 +17,15 @@ export default async function PaginaAjustes() {
       <EncabezadoPagina
         alcance="global"
         titulo="Ajustes"
-        descripcion="Saldos de partida del banco y de PayPal, y objetivos del mes."
+        descripcion="Lo que es de la sociedad y vale para todas las tiendas: saldos de partida del banco y de PayPal."
       />
 
       <FormularioAjustes
         saldoInicial={saldoInicial}
         saldoInicialPaypal={saldoInicialPaypal}
-        objetivos={objetivos}
         saldoActual={tesoreria.saldoBanco}
         saldoPaypalActual={tesoreria.saldoPaypal}
+        cupo={cupo}
       />
     </div>
   );

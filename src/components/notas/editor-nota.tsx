@@ -30,7 +30,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Markdown, alternarTareaEnMarkdown } from "@/components/notas/markdown";
+import { useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { eliminarNota, guardarNota } from "@/app/acciones/notas";
+import { NOMBRE_GENERAL } from "@/lib/ambito";
 import { cn } from "@/lib/utils";
 import { COLORES_NOTA, type NotaConAutor } from "@/lib/tipos-cuentas";
 
@@ -56,6 +58,9 @@ export function EditorNota({
   const [color, setColor] = useState<string | null>(nota.color ?? null);
   const [fijada, setFijada] = useState(Boolean(nota.fijada));
   const [archivada, setArchivada] = useState(Boolean(nota.archivada));
+  // null = General / Sociedad.
+  const [tiendaId, setTiendaId] = useState<string | null>(nota.tienda_id ?? null);
+  const tiendas = useTiendas().filter((t) => t.estado !== "archivada" || t.id === nota.tienda_id);
 
   const [pestana, setPestana] = useState<"escribir" | "vista">("escribir");
   const [estado, setEstado] = useState<EstadoGuardado>("limpio");
@@ -81,6 +86,7 @@ export function EditorNota({
         color,
         fijada,
         archivada,
+        tienda_id: tiendaId,
       });
 
       // Ya salió otro guardado después: esta respuesta no manda.
@@ -96,7 +102,7 @@ export function EditorNota({
       if (!silencioso) toast.success("Nota guardada.");
       router.refresh();
     },
-    [nota.id, titulo, contenido, etiquetas, color, fijada, archivada, router],
+    [nota.id, titulo, contenido, etiquetas, color, fijada, archivada, tiendaId, router],
   );
 
   /**
@@ -369,6 +375,29 @@ export function EditorNota({
               )}
             />
           ))}
+        </div>
+
+        {/* Tienda: General si es de la sociedad. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="nota-tienda" className="text-xs text-text-secondary">
+            Tienda
+          </label>
+          <select
+            id="nota-tienda"
+            value={tiendaId ?? ""}
+            onChange={(e) => {
+              setTiendaId(e.target.value || null);
+              programarGuardado();
+            }}
+            className="h-9 rounded-md border border-border bg-surface-2 px-2 text-xs text-text-primary outline-none focus-visible:border-brand"
+          >
+            <option value="">{NOMBRE_GENERAL}</option>
+            {tiendas.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.nombre}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Barra de herramientas */}

@@ -55,21 +55,66 @@ export type Resultado<T = undefined> =
   | { ok: true; datos?: T }
   | { ok: false; error: string; campo?: string };
 
-function mensajeDeError(error: unknown): string {
+/**
+ * Traduce un error de Postgres a una frase y, si se sabe, al campo del
+ * formulario que lo causó. Las reglas de tienda y medio de pago las impone el
+ * trigger `normalizar_medio_pago` (0018); sus mensajes ya están en español,
+ * pero aquí se dicen en términos del formulario.
+ */
+function errorDeBase(error: unknown): { error: string; campo?: string } {
   if (error && typeof error === "object" && "message" in error) {
     const mensaje = String((error as { message: unknown }).message);
+    if (mensaje.includes("La tienda está archivada")) {
+      return {
+        error: "Esa tienda está archivada y ya no admite movimientos nuevos. Elige otra.",
+        campo: "tienda_id",
+      };
+    }
+    if (mensaje.includes("movimientos_ingreso_con_tienda")) {
+      return {
+        error: "Un ingreso tiene que ser de una tienda: no puede ir a General.",
+        campo: "tienda_id",
+      };
+    }
+    if (mensaje.includes("movimientos_tienda_id_fkey")) {
+      return { error: "La tienda elegida ya no existe.", campo: "tienda_id" };
+    }
+    if (mensaje.includes("pagado de bolsillo necesita")) {
+      return { error: "Elige qué socio lo pagó de su bolsillo.", campo: "anticipado_por" };
+    }
+    if (mensaje.includes("ya tiene reembolsos aplicados")) {
+      return {
+        error:
+          "Este gasto ya tiene reembolsos aplicados: no puede cambiar de socio. " +
+          "Anula antes el reembolso en Liquidación, o deja el medio de pago como estaba.",
+        campo: "medio_pago",
+      };
+    }
+    if (mensaje.includes("ningún socio asignado a la tarjeta")) {
+      return {
+        error: "No hay ningún socio asignado a la tarjeta. Asígnalo en Ajustes (cupo de la tarjeta).",
+        campo: "medio_pago",
+      };
+    }
+    if (mensaje.includes("movimientos_medio_pago")) {
+      return { error: "El medio de pago no es válido para este movimiento.", campo: "medio_pago" };
+    }
     if (mensaje.includes("duplicate key")) {
-      return "Ya existe un registro igual.";
+      return { error: "Ya existe un registro igual." };
     }
     if (mensaje.includes("violates foreign key")) {
-      return "La categoría o el socio seleccionados ya no existen.";
+      return { error: "La categoría o el socio seleccionados ya no existen." };
     }
     if (mensaje.includes("row-level security")) {
-      return "No tienes permiso para hacer esto.";
+      return { error: "No tienes permiso para hacer esto." };
     }
-    return mensaje;
+    return { error: mensaje };
   }
-  return "Ha ocurrido un error inesperado.";
+  return { error: "Ha ocurrido un error inesperado." };
+}
+
+function mensajeDeError(error: unknown): string {
+  return errorDeBase(error).error;
 }
 
 /** Sesión activa, o error. Ninguna acción escribe sin pasar por aquí. */
@@ -148,13 +193,21 @@ async function registrarTasa(
     .insert({ fecha, divisa: "USD", tasa_a_eur: redondear6(tasa) });
 }
 
-/** Traduce los datos validados a la fila que espera la tabla. */
+/**
+ * Traduce los datos validados a la fila que espera la tabla.
+ *
+ * Tienda y medio de pago van siempre explícitos: desde la 0019 no hay tienda
+ * por defecto, y un movimiento sin ella sería de General sin que nadie lo
+ * haya decidido. Nunca se escribe `cuenta_pago` (la borra la 0019).
+ */
 function construirFila(
   datos: DatosMovimiento,
   categoriaId: string,
   creadoPor: string,
 ): FilaInsertMovimiento {
   const tasa = datos.divisa === "EUR" ? 1 : redondear6(datos.tasa_cambio);
+  const esGasto = datos.tipo === "gasto";
+  const medio = esGasto ? datos.medio_pago : null;
 
   return {
     tipo: datos.tipo,
@@ -169,14 +222,12 @@ function construirFila(
     tasa_cambio: tasa,
     total_eur: convertirAEuros(datos.total, tasa),
     base_eur: convertirAEuros(datos.base_imponible, tasa),
-    // En los ingresos no hay nadie que adelante dinero.
-    anticipado_por: datos.tipo === "gasto" ? datos.anticipado_por : null,
-    // Solo un gasto del negocio sale de una cuenta. Si lo adelantó un socio,
-    // no salió de ninguna (y la base de datos lo deja igualmente en NULL).
-    cuenta_pago:
-      datos.tipo === "gasto" && !datos.anticipado_por
-        ? (datos.cuenta_pago ?? "banco")
-        : null,
+    tienda_id: datos.tienda_id,
+    medio_pago: medio,
+    // Solo «bolsillo» lleva el socio que elige el usuario. Con la tarjeta lo
+    // pone el trigger (el titular, siempre); con banco o PayPal, y en los
+    // ingresos, no hay nadie que adelante dinero.
+    anticipado_por: medio === "bolsillo" ? datos.anticipado_por : null,
     num_pedidos: datos.num_pedidos ?? null,
     plataforma: datos.plataforma ?? null,
     impresiones: datos.impresiones ?? null,
@@ -190,6 +241,8 @@ function revalidar() {
   revalidatePath("/movimientos");
   revalidatePath("/diario");
   revalidatePath("/categorias");
+  // Un gasto con tarjeta o de bolsillo mueve el cupo y la liquidación.
+  revalidatePath("/liquidacion");
   revalidatePath("/");
 }
 
@@ -224,7 +277,7 @@ export async function crearMovimiento(
     .select("id")
     .single();
 
-  if (error || !data) return { ok: false, error: mensajeDeError(error) };
+  if (error || !data) return { ok: false, ...errorDeBase(error) };
 
   revalidar();
   return { ok: true, datos: { id: (data as { id: string }).id } };
@@ -269,7 +322,7 @@ export async function actualizarMovimiento(
     .eq("id", id)
     .select("id");
 
-  if (error) return { ok: false, error: mensajeDeError(error) };
+  if (error) return { ok: false, ...errorDeBase(error) };
 
   if (!tocadas || tocadas.length === 0) {
     return {
@@ -332,7 +385,8 @@ export async function marcarReembolsado(
 }
 
 /**
- * Registro diario de ventas, desglosado por método de cobro (0017).
+ * Registro diario de ventas, desglosado por método de cobro (0017), de UNA
+ * tienda (0018): el duplicado se detecta dentro de esa tienda.
  *
  * Cada método con importe genera su propio ingreso en «Ventas Shopify», con
  * su `metodo_cobro`. Lo hace `fn_registrar_ventas_dia` en una transacción:
@@ -363,6 +417,7 @@ export async function registrarVentaDiaria(
   }
 
   const { data, error } = await supabase.rpc("fn_registrar_ventas_dia", {
+    p_tienda: datos.tienda_id,
     p_fecha: datos.fecha,
     p_divisa: datos.divisa,
     p_tasa: tasa,

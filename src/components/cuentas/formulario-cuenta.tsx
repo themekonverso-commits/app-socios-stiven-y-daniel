@@ -8,7 +8,9 @@ import { CampoImporte } from "@/components/campos/campo-importe";
 import { SelectorFecha } from "@/components/campos/selector-fecha";
 import { SelectorSegmentado } from "@/components/campos/selector-segmentado";
 import { Textarea } from "@/components/ui/textarea";
+import { useAmbito, useTiendas } from "@/components/tiendas/proveedor-tiendas";
 import { actualizarCuenta, crearCuenta } from "@/app/acciones/cuentas";
+import { NOMBRE_GENERAL } from "@/lib/ambito";
 import { formatearEuros, mayusculaInicial } from "@/lib/formato";
 import { redondear2 } from "@/lib/dinero";
 import {
@@ -30,6 +32,8 @@ type Estado = {
   email_asociado: string;
   url: string;
   titular_id: string;
+  /** "" = General / Sociedad. */
+  tienda_id: string;
   coste: number | null;
   divisa: Divisa;
   periodicidad: Periodicidad;
@@ -40,7 +44,11 @@ type Estado = {
   notas: string;
 };
 
-function inicial(cuenta: CuentaConCoste | null, usuarioId: string): Estado {
+function inicial(
+  cuenta: CuentaConCoste | null,
+  usuarioId: string,
+  tiendaPorDefecto: string,
+): Estado {
   if (cuenta) {
     return {
       nombre: cuenta.nombre ?? "",
@@ -48,6 +56,7 @@ function inicial(cuenta: CuentaConCoste | null, usuarioId: string): Estado {
       email_asociado: cuenta.email_asociado ?? "",
       url: cuenta.url ?? "",
       titular_id: cuenta.titular_id ?? "",
+      tienda_id: cuenta.tienda_id ?? "",
       coste: cuenta.coste === null ? null : Number(cuenta.coste),
       divisa: (cuenta.divisa as Divisa) ?? "EUR",
       periodicidad: (cuenta.periodicidad as Periodicidad) ?? "mensual",
@@ -65,6 +74,7 @@ function inicial(cuenta: CuentaConCoste | null, usuarioId: string): Estado {
     email_asociado: "",
     url: "",
     titular_id: usuarioId,
+    tienda_id: tiendaPorDefecto,
     coste: null,
     divisa: "EUR",
     periodicidad: "mensual",
@@ -95,7 +105,13 @@ export function FormularioCuenta({
   alTerminar: () => void;
   alCambiarSuciedad: (sucio: boolean) => void;
 }) {
-  const [datos, setDatos] = useState<Estado>(() => inicial(cuenta, usuarioId));
+  const tiendas = useTiendas();
+  const ambito = useAmbito();
+  // Cuenta nueva: la tienda activa. En «Todas» y «General», General (se
+  // puede cambiar en el propio campo).
+  const [datos, setDatos] = useState<Estado>(() =>
+    inicial(cuenta, usuarioId, ambito.tipo === "tienda" ? ambito.tienda.id : ""),
+  );
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [guardando, iniciarGuardado] = useTransition();
   const nombreRef = useRef<HTMLInputElement>(null);
@@ -138,6 +154,12 @@ export function FormularioCuenta({
     return [...todos].sort((a, b) => a.localeCompare(b, "es"));
   }, [tiposUsados, datos.tipo]);
 
+  // Las archivadas no se ofrecen, salvo la que ya tenga la cuenta.
+  const tiendasElegibles = useMemo(
+    () => tiendas.filter((t) => t.estado !== "archivada" || t.id === datos.tienda_id),
+    [tiendas, datos.tienda_id],
+  );
+
   const categoriasGasto = useMemo(
     () => categorias.filter((c) => c.tipo === "gasto"),
     [categorias],
@@ -170,6 +192,7 @@ export function FormularioCuenta({
       email_asociado: datos.email_asociado || null,
       url: datos.url || null,
       titular_id: datos.titular_id || null,
+      tienda_id: datos.tienda_id || null,
       coste: esGratuito ? null : datos.coste,
       divisa: datos.divisa,
       periodicidad: datos.periodicidad,
@@ -288,6 +311,30 @@ export function FormularioCuenta({
             }))}
             alCambiar={(valor) => actualizar({ titular_id: valor })}
           />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="cta-tienda" className="text-sm font-medium text-text-primary">
+            Tienda
+          </label>
+          <select
+            id="cta-tienda"
+            value={datos.tienda_id}
+            onChange={(e) => actualizar({ tienda_id: e.target.value })}
+            className={CLASE_CAMPO}
+          >
+            <option value="">{NOMBRE_GENERAL}</option>
+            {tiendasElegibles.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.nombre}
+                {t.estado === "archivada" ? " (archivada)" : ""}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-text-secondary">
+            Al pulsar «Registrar pago», el gasto se apunta en esta tienda.{" "}
+            {NOMBRE_GENERAL} es para lo compartido entre todas (Claude, Apimart…).
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">

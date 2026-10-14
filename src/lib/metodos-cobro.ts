@@ -30,7 +30,10 @@ export function plataformaDeMetodo(metodo: MetodoCobro): PlataformaCobro {
   return metodo === "paypal" ? "PayPal" : "Shopify Payments";
 }
 
-/** Cuentas del negocio de las que sale un gasto o un reembolso. */
+/**
+ * Cuentas del negocio de las que sale un reembolso a un socio. Los gastos ya
+ * no las usan: desde la 0018 llevan `medio_pago` (ver lib/medios-pago.ts).
+ */
 export const CUENTAS_PAGO = ["banco", "paypal"] as const;
 export type CuentaPago = (typeof CUENTAS_PAGO)[number];
 

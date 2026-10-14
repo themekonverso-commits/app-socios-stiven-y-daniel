@@ -71,6 +71,7 @@ export function ProveedorMovimientos({
   conceptos,
   usuarioId,
   ultimaTasa,
+  socioTarjetaId,
   children,
 }: {
   categorias: Categoria[];
@@ -78,6 +79,11 @@ export function ProveedorMovimientos({
   conceptos: string[];
   usuarioId: string;
   ultimaTasa: { fecha: string; tasa: number } | null;
+  /**
+   * Titular de la tarjeta del negocio (`ajustes.limite_aportacion.socio_id`).
+   * Un gasto con tarjeta queda a su nombre, siempre. null si no hay ninguno.
+   */
+  socioTarjetaId: string | null;
   children: React.ReactNode;
 }) {
   const [abierto, setAbierto] = useState(false);
@@ -219,6 +225,7 @@ export function ProveedorMovimientos({
             conceptos={conceptos}
             usuarioId={usuarioId}
             ultimaTasa={ultimaTasa}
+            socioTarjetaId={socioTarjetaId}
             alCambiarSuciedad={setSucio}
             alTerminar={() => {
               setSucio(false);

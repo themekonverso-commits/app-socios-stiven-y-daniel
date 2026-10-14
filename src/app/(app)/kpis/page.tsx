@@ -15,6 +15,7 @@ import { EsqueletoBloque } from "@/components/dashboard/esqueletos";
 import { CategoriasApiladas } from "@/components/kpis/categorias-apiladas";
 import { Objetivos } from "@/components/kpis/objetivos";
 import { SemaforoAlertas, type Alerta } from "@/components/kpis/semaforo-alertas";
+import { SemaforoCupo } from "@/components/kpis/semaforo-cupo";
 import { TablaMensual } from "@/components/kpis/tabla-mensual";
 import {
   obtenerAjustes,
@@ -24,14 +25,15 @@ import {
   obtenerSerieMensual,
   obtenerUltimaVenta,
 } from "@/lib/consultas-kpi";
-import {
-  obtenerCierres,
-  obtenerLimiteAportacion,
-  obtenerResumenSocios,
-} from "@/lib/consultas-liquidacion";
+import { obtenerCierres, obtenerResumenSocios } from "@/lib/consultas-liquidacion";
+import { obtenerCupoTarjeta } from "@/lib/consultas-cupo";
+import { nivelCupo } from "@/lib/cupo";
 import { leerPeriodo, type Periodo } from "@/lib/periodo";
 import { obtenerResumenCuentas } from "@/lib/consultas-cuentas";
 import { obtenerResumenCobros } from "@/lib/consultas-cobros";
+import { obtenerAmbito, obtenerTiendas } from "@/lib/tiendas";
+import { SLUG_TODAS, conTienda, type Ambito } from "@/lib/ambito";
+import { redondear2 } from "@/lib/dinero";
 import { trimestreDe } from "@/lib/trimestres";
 import { calcularRoas, porcentaje } from "@/lib/kpis";
 import { formatearEuros, formatearFecha, formatearNumero } from "@/lib/formato";
@@ -48,30 +50,41 @@ export default async function PaginaKpis({
 }) {
   const params = await searchParams;
   const periodo = leerPeriodo(params);
-  const clave = JSON.stringify(params);
+  const ambito = await obtenerAmbito();
+  const clave = `${ambito.slug}-${JSON.stringify(params)}`;
 
   return (
     <div className="flex flex-col gap-5">
       <EncabezadoPagina
         titulo="KPIs"
-        descripcion="El detalle, para mirarlo con calma."
+        descripcion={
+          ambito.tipo === "general"
+            ? "Los gastos compartidos de la sociedad, con calma."
+            : "El detalle, para mirarlo con calma."
+        }
         acciones={<SelectorPeriodo periodo={periodo} />}
       />
 
       <Suspense key={`alertas-${clave}`} fallback={<EsqueletoBloque alto={200} />}>
-        <BloqueAlertas periodo={periodo} />
+        <BloqueAlertas periodo={periodo} ambito={ambito} />
       </Suspense>
 
-      <Suspense key={`objetivos-${clave}`} fallback={<EsqueletoBloque alto={240} />}>
-        <BloqueObjetivos />
-      </Suspense>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Suspense key={`objetivos-${clave}`} fallback={<EsqueletoBloque alto={240} />}>
+          <BloqueObjetivos ambito={ambito} />
+        </Suspense>
+
+        <Suspense key={`cupo-${clave}`} fallback={<EsqueletoBloque alto={240} />}>
+          <BloqueCupo />
+        </Suspense>
+      </div>
 
       <Suspense key={`mensual-${clave}`} fallback={<EsqueletoBloque alto={420} />}>
-        <BloqueMensual />
+        <BloqueMensual ambito={ambito} />
       </Suspense>
 
       <Suspense key={`categorias-${clave}`} fallback={<EsqueletoBloque alto={380} />}>
-        <BloqueCategorias />
+        <BloqueCategorias ambito={ambito} />
       </Suspense>
     </div>
   );
@@ -82,11 +95,17 @@ export default async function PaginaKpis({
  *
  * Los umbrales son fijos y están aquí, en un solo sitio, para que se puedan
  * revisar de un vistazo cuando el negocio cambie de escala.
+ *
+ * Los avisos de negocio (ROAS, beneficio, ventas, pasarela, cuentas) miran
+ * el ámbito elegido. Los de la sociedad (caja, cupo de la tarjeta,
+ * liquidación y cierres) salen igual en todas las vistas. En General no hay
+ * ventas: los avisos que dependen de facturar no aplican.
  */
-async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
+async function BloqueAlertas({ periodo, ambito }: { periodo: Periodo; ambito: Ambito }) {
   const hoy = new Date();
   const inicioMes = format(startOfMonth(hoy), "yyyy-MM-dd");
   const finMes = format(endOfMonth(hoy), "yyyy-MM-dd");
+  const esGeneral = ambito.tipo === "general";
 
   const [
     resumenPeriodo,
@@ -94,21 +113,21 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     saldo,
     ultimaVenta,
     socios,
-    { limite, avisoPct },
+    cupo,
     cierres,
     cobros,
   ] = await Promise.all([
-    obtenerResumen(periodo.desde, periodo.hasta),
-    obtenerResumen(inicioMes, finMes),
+    obtenerResumen(periodo.desde, periodo.hasta, ambito),
+    obtenerResumen(inicioMes, finMes, ambito),
     obtenerTesoreria(),
-    obtenerUltimaVenta(),
+    esGeneral ? null : obtenerUltimaVenta(ambito),
     obtenerResumenSocios(),
-    obtenerLimiteAportacion(),
+    obtenerCupoTarjeta(),
     obtenerCierres(),
-    obtenerResumenCobros(periodo.desde, periodo.hasta),
+    esGeneral ? null : obtenerResumenCobros(periodo.desde, periodo.hasta, ambito),
   ]);
 
-  const cuentas = await obtenerResumenCuentas();
+  const cuentas = await obtenerResumenCuentas(ambito);
 
   // El negocio arranca con la fecha del saldo inicial: no tiene sentido avisar
   // de trimestres anteriores a que existiera.
@@ -126,7 +145,8 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     });
   }
 
-  if (resumenMes.beneficio < 0) {
+  // En General el beneficio siempre es negativo: solo hay gastos.
+  if (!esGeneral && resumenMes.beneficio < 0) {
     alertas.push({
       nivel: "rojo",
       titulo: "Beneficio negativo este mes",
@@ -154,22 +174,25 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
   }
 
   // Comisión de la pasarela: sobre el bruto de los cobros del periodo.
-  if (cobros.pctMedio !== null && cobros.pctMedio > 4) {
+  if (cobros && cobros.pctMedio !== null && cobros.pctMedio > 4) {
     alertas.push({
       nivel: "ambar",
       titulo: `La pasarela se lleva el ${formatearNumero(cobros.pctMedio)} % de lo cobrado`,
       detalle: `${formatearEuros(cobros.comisiones)} de comisiones sobre ${formatearEuros(cobros.bruto)} de ventas en ${cobros.numero} cobro${cobros.numero === 1 ? "" : "s"}. Por encima del 4 % conviene revisar el plan de Shopify Payments o los métodos de pago.`,
-      enlace: { href: "/cobros", texto: "Ver los cobros" },
+      enlace: { href: conTienda("/cobros", ambito.slug), texto: "Ver los cobros" },
     });
   }
 
-  if (ultimaVenta) {
+  if (esGeneral) {
+    // General no registra ventas: no hay nada que avisar.
+  } else if (ultimaVenta) {
     const dias = differenceInCalendarDays(hoy, parseISO(ultimaVenta));
     if (dias > 7) {
       alertas.push({
         nivel: "ambar",
         titulo: `${dias} días sin registrar ventas`,
         detalle: `El último registro diario es del ${formatearFecha(ultimaVenta)}. Sin él, los KPIs se quedan cortos.`,
+        enlace: { href: conTienda("/diario", ambito.slug), texto: "Ir al registro diario" },
       });
     }
   } else {
@@ -178,6 +201,7 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
       titulo: "Todavía no hay ningún registro diario de ventas",
       detalle:
         "Sin pedidos registrados no se pueden calcular el ticket medio ni el CPA.",
+      enlace: { href: conTienda("/diario", ambito.slug), texto: "Registrar el primer día" },
     });
   }
 
@@ -195,24 +219,22 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
     });
   }
 
-  // R6: el cupo mide SOLO lo que consume la tarjeta (publicidad, producto y
-  // envíos). Los anticipos de otras categorías se reembolsan igual y no deben
-  // disparar esta alerta.
-  if (limite.importe > 0) {
-    const ambito = limite.ambito;
-    for (const socio of socios) {
-      const pct = porcentaje(socio.anticipado_cupo, limite.importe);
-      if (pct !== null && pct >= avisoPct) {
-        alertas.push({
-          nivel: "ambar",
-          titulo: `${socio.nombre} ha consumido el ${formatearNumero(pct)} % de su cupo`,
-          detalle: `Sobre los ${formatearEuros(limite.importe)} acordados${
-            ambito ? ` para ${ambito}` : ""
-          }. El contrato prevé convocar la reunión de continuidad.`,
-          enlace: { href: "/liquidacion", texto: "Ver el cupo" },
-        });
-      }
-    }
+  // R6: el cupo de la tarjeta es de la sociedad (todas las tiendas y
+  // General). Ámbar desde el umbral de aviso, rojo al llegar al 100 %.
+  const nivel = nivelCupo(cupo);
+  if (cupo.limite > 0 && nivel !== "ok") {
+    alertas.push({
+      nivel: nivel === "superado" ? "rojo" : "ambar",
+      titulo:
+        nivel === "superado"
+          ? `La tarjeta de ${cupo.socio_nombre ?? "Daniel"} ha superado el cupo`
+          : `La tarjeta de ${cupo.socio_nombre ?? "Daniel"} lleva el ${formatearNumero(cupo.pct ?? 0)} % del cupo`,
+      detalle: `${formatearEuros(cupo.consumido)} de los ${formatearEuros(cupo.limite)} acordados, sumando todas las tiendas y General. El contrato prevé convocar la reunión de continuidad.`,
+      enlace: {
+        href: conTienda("/movimientos?medio=tarjeta_daniel", SLUG_TODAS),
+        texto: "Ver los gastos de la tarjeta",
+      },
+    });
   }
 
   // Trimestre terminado hace más de 15 días y todavía sin cerrar.
@@ -260,7 +282,7 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
         .slice(0, 3)
         .map((c) => c.nombre)
         .join(", "),
-      enlace: { href: "/cuentas", texto: "Revisar el inventario" },
+      enlace: { href: conTienda("/cuentas", ambito.slug), texto: "Revisar el inventario" },
     });
   }
 
@@ -272,7 +294,7 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
         .slice(0, 3)
         .map((c) => c.nombre)
         .join(", "),
-      enlace: { href: "/cuentas", texto: "Ver renovaciones" },
+      enlace: { href: conTienda("/cuentas", ambito.slug), texto: "Ver renovaciones" },
     });
   }
 
@@ -282,7 +304,7 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
       nivel: "ambar",
       titulo: `Las suscripciones se llevan el ${formatearNumero(pesoSuscripciones)} % de la facturación`,
       detalle: `${formatearEuros(cuentas.costeMensual)} al mes en cuentas activas. Por encima del 15 % conviene revisar cuáles se usan de verdad.`,
-      enlace: { href: "/cuentas", texto: "Revisar suscripciones" },
+      enlace: { href: conTienda("/cuentas", ambito.slug), texto: "Revisar suscripciones" },
     });
   }
 
@@ -296,15 +318,44 @@ async function BloqueAlertas({ periodo }: { periodo: Periodo }) {
   );
 }
 
-async function BloqueObjetivos() {
+/**
+ * Objetivos del mes en curso. Son de cada tienda (`tiendas.objetivo_mes`):
+ *   tienda  → los suyos;
+ *   todas   → la suma de los de las tiendas activas;
+ *   general → ninguno, porque General no factura.
+ */
+async function BloqueObjetivos({ ambito }: { ambito: Ambito }) {
   const hoy = new Date();
   const inicioMes = format(startOfMonth(hoy), "yyyy-MM-dd");
   const finMes = format(endOfMonth(hoy), "yyyy-MM-dd");
 
-  const [{ objetivos }, resumenMes] = await Promise.all([
-    obtenerAjustes(),
-    obtenerResumen(inicioMes, finMes),
+  if (ambito.tipo === "general") {
+    return (
+      <TarjetaBloque
+        titulo="Objetivos del mes"
+        descripcion="General / Sociedad no tiene objetivos."
+      >
+        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-text-secondary">
+          Aquí solo hay gastos compartidos, que no facturan: los objetivos de facturación y
+          de beneficio se fijan en cada tienda.
+        </p>
+      </TarjetaBloque>
+    );
+  }
+
+  const [tiendas, resumenMes] = await Promise.all([
+    obtenerTiendas(),
+    obtenerResumen(inicioMes, finMes, ambito),
   ]);
+
+  const activas = tiendas.filter((t) => t.estado === "activa");
+  const objetivo =
+    ambito.tipo === "tienda"
+      ? ambito.tienda.objetivo_mes
+      : {
+          facturacion: redondear2(activas.reduce((s, t) => s + t.objetivo_mes.facturacion, 0)),
+          beneficio: redondear2(activas.reduce((s, t) => s + t.objetivo_mes.beneficio, 0)),
+        };
 
   return (
     <TarjetaBloque
@@ -314,29 +365,56 @@ async function BloqueObjetivos() {
       <Objetivos
         facturacionMes={resumenMes.ingresos}
         beneficioMes={resumenMes.beneficio}
-        objetivoFacturacion={objetivos.facturacion}
-        objetivoBeneficio={objetivos.beneficio}
+        objetivoFacturacion={objetivo.facturacion}
+        objetivoBeneficio={objetivo.beneficio}
         diasRestantes={differenceInCalendarDays(endOfMonth(hoy), hoy)}
+        enlaceDefinir={conTienda("/tiendas", ambito.slug)}
+        nota={
+          ambito.tipo === "todas"
+            ? `Suma de los objetivos de ${activas.length} tienda${activas.length === 1 ? "" : "s"} activa${activas.length === 1 ? "" : "s"}. El beneficio incluye los gastos de General.`
+            : undefined
+        }
       />
     </TarjetaBloque>
   );
 }
 
-async function BloqueMensual() {
-  const filas = await obtenerSerieMensual(12);
+/** Semáforo del cupo de la tarjeta: global, en todas las vistas. */
+async function BloqueCupo() {
+  const cupo = await obtenerCupoTarjeta();
+
+  return (
+    <TarjetaBloque
+      titulo="Cupo de la tarjeta"
+      descripcion="De la sociedad: el mismo en todas las tiendas."
+    >
+      <SemaforoCupo
+        cupo={cupo}
+        enlace={conTienda("/movimientos?medio=tarjeta_daniel", SLUG_TODAS)}
+      />
+    </TarjetaBloque>
+  );
+}
+
+async function BloqueMensual({ ambito }: { ambito: Ambito }) {
+  const filas = await obtenerSerieMensual(12, ambito);
 
   return (
     <TarjetaBloque
       titulo="Comparativa mensual"
-      descripcion="Los últimos 12 meses. Pulsa una cabecera para ordenar."
+      descripcion={
+        ambito.tipo === "general"
+          ? "Los últimos 12 meses. En General solo hay gastos: facturación, ROAS y ticket salen vacíos a propósito."
+          : "Los últimos 12 meses. Pulsa una cabecera para ordenar."
+      }
     >
       <TablaMensual filas={filas} />
     </TarjetaBloque>
   );
 }
 
-async function BloqueCategorias() {
-  const datos = await obtenerGastosCategoriaPorMes(12);
+async function BloqueCategorias({ ambito }: { ambito: Ambito }) {
+  const datos = await obtenerGastosCategoriaPorMes(12, ambito);
 
   return (
     <TarjetaBloque

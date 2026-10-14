@@ -6,6 +6,7 @@ import { HandCoins } from "lucide-react";
 
 import { DialogoReembolso } from "@/components/liquidacion/dialogo-reembolso";
 import { DialogoProrrata } from "@/components/liquidacion/dialogo-prorrata";
+import { CeldaTienda } from "@/components/liquidacion/celda-tienda";
 import { EstadoVacio } from "@/components/estado-vacio";
 import { cn } from "@/lib/utils";
 import { formatearEuros, formatearFecha } from "@/lib/formato";
@@ -17,6 +18,9 @@ import type { AnticipoPendiente, ResumenSocio } from "@/lib/tipos-liquidacion";
  *
  * Orden fijo por fecha ascendente: lo más antiguo primero, que es lo que toca
  * devolver antes. No se ofrece cambiarlo a propósito.
+ *
+ * Son los de TODAS las tiendas y General (la liquidación es de la sociedad);
+ * la columna Tienda dice de dónde viene cada uno.
  */
 export function TablaAnticipos({
   anticipos,
@@ -103,11 +107,11 @@ export function TablaAnticipos({
           ))}
         </select>
 
-        <DialogoProrrata socios={socios} alTerminar={refrescar} />
+        <DialogoProrrata socios={socios} anticipos={anticipos} alTerminar={refrescar} />
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
+        <table className="w-full min-w-[900px] border-collapse text-sm">
           <caption className="sr-only">
             Anticipos pendientes de reembolso, del más antiguo al más reciente
           </caption>
@@ -125,6 +129,7 @@ export function TablaAnticipos({
               <th scope="col" className="px-3 py-2.5">Fecha</th>
               <th scope="col" className="px-3 py-2.5">Concepto</th>
               <th scope="col" className="px-3 py-2.5">Categoría</th>
+              <th scope="col" className="px-3 py-2.5">Tienda</th>
               <th scope="col" className="px-3 py-2.5">Socio</th>
               <th scope="col" className="px-3 py-2.5 text-right">Importe</th>
               <th scope="col" className="px-3 py-2.5 text-right">Reembolsado</th>
@@ -164,6 +169,9 @@ export function TablaAnticipos({
                     <span className="inline-flex max-w-full truncate rounded-md bg-surface-2 px-2 py-0.5 text-xs text-text-secondary">
                       {anticipo.categoria}
                     </span>
+                  </td>
+                  <td className="max-w-[180px] px-3 py-2.5">
+                    <CeldaTienda anticipo={anticipo} />
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="flex items-center gap-1.5 text-text-secondary">

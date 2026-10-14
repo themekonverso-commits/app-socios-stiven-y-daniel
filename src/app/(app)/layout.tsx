@@ -9,6 +9,7 @@ import { ProveedorTiendas } from "@/components/tiendas/proveedor-tiendas";
 import {
   obtenerCategorias,
   obtenerConceptosFrecuentes,
+  obtenerSocioTarjeta,
   obtenerSocios,
   obtenerUltimaTasa,
 } from "@/lib/consultas";
@@ -69,6 +70,7 @@ export default async function LayoutAplicacion({
       conceptos={conceptos}
       usuarioId={user.id}
       ultimaTasa={ultimaTasa}
+      socioTarjetaId={await obtenerSocioTarjeta()}
     >
       <div className="min-h-dvh bg-base">
       <a href="#contenido-principal" className="skip-link">

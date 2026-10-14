@@ -45,10 +45,15 @@ function leerPedidos(texto: string): number {
  * Shopify Payments y PayPal cobran distinto (al banco cada miércoles / a
  * PayPal el mismo día). El total del día y los pedidos totales son la suma:
  * no se escriben, se calculan.
+ *
+ * Desde la 0018 las ventas son de UNA tienda, la activa: el formulario la
+ * nombra para que no haya duda de dónde se apuntan.
  */
 export function FormularioDiario({
+  tienda,
   ultimaTasa,
 }: {
+  tienda: { id: string; nombre: string };
   ultimaTasa: { fecha: string; tasa: number } | null;
 }) {
   const [fecha, setFecha] = useState(() => iso(new Date()));
@@ -102,6 +107,7 @@ export function FormularioDiario({
 
     iniciarGuardado(async () => {
       const resultado = await registrarVentaDiaria({
+        tienda_id: tienda.id,
         fecha,
         shopify_importe: shopify.importe ?? 0,
         shopify_pedidos: pedidosShopify,
@@ -123,7 +129,9 @@ export function FormularioDiario({
       }
 
       toast.success(
-        sobrescribir ? "Registro del día actualizado." : "Ventas registradas.",
+        sobrescribir
+          ? `Registro del día actualizado en ${tienda.nombre}.`
+          : `Ventas registradas en ${tienda.nombre}.`,
       );
       setShopify(VACIO);
       setPaypal(VACIO);
@@ -189,6 +197,7 @@ export function FormularioDiario({
           evento.preventDefault();
           enviar(false);
         }}
+        aria-label={`Registrar las ventas del día en ${tienda.nombre}`}
         className="rounded-xl border border-border bg-surface p-4"
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,0.6fr)] lg:items-end">
@@ -272,7 +281,7 @@ export function FormularioDiario({
             {guardando ? (
               <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
             ) : null}
-            Registrar
+            Registrar en {tienda.nombre}
           </button>
         </div>
       </form>
@@ -284,10 +293,10 @@ export function FormularioDiario({
         <AlertDialogContent className="border-border bg-surface">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-text-primary">
-              Ya hay ventas registradas ese día
+              Ya hay ventas registradas ese día en {tienda.nombre}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary">
-              Si continúas, las ventas de ese día se sustituyen por las nuevas en
+              Si continúas, las ventas de ese día en esta tienda se sustituyen por las nuevas en
               lugar de sumarse, en los dos métodos: un método que dejes a cero se
               borra. Duplicar las ventas de un día descuadraría toda la caja.
             </AlertDialogDescription>

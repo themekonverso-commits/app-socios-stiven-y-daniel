@@ -64,12 +64,18 @@ export function Objetivos({
   objetivoFacturacion,
   objetivoBeneficio,
   diasRestantes,
+  enlaceDefinir,
+  nota,
 }: {
   facturacionMes: number;
   beneficioMes: number;
   objetivoFacturacion: number;
   objetivoBeneficio: number;
   diasRestantes: number;
+  /** /tiendas con la tienda activa: los objetivos son de cada tienda. */
+  enlaceDefinir: string;
+  /** Aclaración bajo los días restantes (en «Todas», de dónde sale la suma). */
+  nota?: string;
 }) {
   const hayObjetivos = objetivoFacturacion > 0 || objetivoBeneficio > 0;
 
@@ -78,13 +84,13 @@ export function Objetivos({
       <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border px-4 py-8 text-center">
         <Target aria-hidden="true" className="size-6 text-text-muted" />
         <p className="mt-3 text-sm text-text-secondary">
-          Todavía no has fijado objetivos mensuales.
+          Todavía no hay objetivos mensuales fijados.
         </p>
         <Link
-          href="/ajustes"
+          href={enlaceDefinir}
           className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-brand px-4 text-sm font-semibold text-white transition-colors hover:bg-brand-hover"
         >
-          Definirlos en Ajustes
+          Definirlos en Tiendas
         </Link>
       </div>
     );
@@ -96,6 +102,7 @@ export function Objetivos({
         Mes en curso · quedan{" "}
         <span className="cifra font-medium text-text-primary">{diasRestantes}</span>{" "}
         día{diasRestantes === 1 ? "" : "s"}
+        {nota ? <span className="mt-1 block text-text-muted">{nota}</span> : null}
       </p>
 
       {objetivoFacturacion > 0 ? (

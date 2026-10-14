@@ -48,9 +48,11 @@ function fecha(iso: string): string {
 export async function generarResumenIvaPdf(
   resumen: ResumenIva,
   etiquetaPeriodo: string,
+  /** «Consolidado (sociedad)», «General / Sociedad (…)» o la tienda (0018). */
+  nombreAmbito: string,
 ): Promise<Buffer> {
   const pdf = await PDFDocument.create();
-  pdf.setTitle(`Resumen de IVA ${etiquetaPeriodo}`);
+  pdf.setTitle(`Resumen de IVA ${etiquetaPeriodo} - ${nombreAmbito}`);
   pdf.setSubject("Documento de apoyo. No es un modelo oficial.");
 
   const pagina = pdf.addPage([595.28, 841.89]); // A4
@@ -112,6 +114,8 @@ export async function generarResumenIvaPdf(
     y,
     { size: 10, color: GRIS },
   );
+  y -= 14;
+  texto(`Ámbito: ${nombreAmbito}`, margen, y, { size: 10, bold: true });
   y -= 30;
 
   // ── Tabla por tipo impositivo ────────────────────────────────────────────

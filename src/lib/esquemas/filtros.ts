@@ -3,6 +3,7 @@ import {
   rangoDePresetPeriodo,
   type PresetPeriodo,
 } from "@/lib/periodo";
+import { esMedioPago, type MedioPago } from "@/lib/medios-pago";
 
 /**
  * Filtros de /movimientos.
@@ -11,6 +12,10 @@ import {
  * marcadores y compartir. Este archivo es la única traducción entre la URL y
  * el objeto de filtros; lo usan la página (servidor), la barra de filtros
  * (navegador) y la exportación a CSV.
+ *
+ * La tienda NO es un filtro de esta pantalla: es el ámbito de toda la app
+ * (`?tienda=`, ver lib/ambito.ts). Quien construya un enlace con estos
+ * filtros tiene que añadirle la tienda con `conTienda()`.
  */
 
 /**
@@ -23,6 +28,8 @@ export const PRESET_POR_DEFECTO: PresetFecha = "este-mes";
 
 export type FiltroTipo = "todos" | "ingreso" | "gasto";
 export type FiltroReembolso = "todos" | "pendiente" | "reembolsado";
+/** Medio de pago de los gastos (0018), o "todos". */
+export type FiltroMedio = "todos" | MedioPago;
 export type CampoOrden = "fecha" | "concepto" | "total_eur";
 export type DireccionOrden = "asc" | "desc";
 
@@ -38,6 +45,11 @@ export type Filtros = {
   /** Uid de quien lo registró, o "todos". No es lo mismo que `anticipado`. */
   registrado: string;
   reembolso: FiltroReembolso;
+  /**
+   * Medio de pago. La liquidación enlaza a `?medio=tarjeta_daniel&tienda=todas`
+   * para enseñar los gastos de la tarjeta: es un contrato, no cambiar el nombre.
+   */
+  medio: FiltroMedio;
   q: string;
   orden: CampoOrden;
   direccion: DireccionOrden;
@@ -101,6 +113,9 @@ export function leerFiltros(
       ? reembolsoBruto
       : "todos";
 
+  const medioBruto = texto(params.medio);
+  const medio: FiltroMedio = esMedioPago(medioBruto) ? medioBruto : "todos";
+
   const ordenBruto = texto(params.orden);
   const orden: CampoOrden =
     ordenBruto === "concepto" || ordenBruto === "total_eur"
@@ -123,6 +138,7 @@ export function leerFiltros(
     anticipado: texto(params.anticipado) || "todos",
     registrado: texto(params.registrado) || "todos",
     reembolso,
+    medio,
     q: texto(params.q).slice(0, 120),
     orden,
     direccion,
@@ -154,6 +170,7 @@ export function escribirFiltros(filtros: Partial<Filtros>): string {
   if (filtros.reembolso && filtros.reembolso !== "todos") {
     params.set("reembolso", filtros.reembolso);
   }
+  if (filtros.medio && filtros.medio !== "todos") params.set("medio", filtros.medio);
   if (filtros.q) params.set("q", filtros.q);
   if (filtros.orden && filtros.orden !== "fecha") params.set("orden", filtros.orden);
   if (filtros.direccion && filtros.direccion !== "desc") {
@@ -175,6 +192,7 @@ export function hayFiltrosActivos(filtros: Filtros): boolean {
     filtros.anticipado !== "todos" ||
     filtros.registrado !== "todos" ||
     filtros.reembolso !== "todos" ||
+    filtros.medio !== "todos" ||
     filtros.q !== ""
   );
 }

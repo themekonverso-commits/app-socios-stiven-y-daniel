@@ -15,8 +15,17 @@ import { cn } from "@/lib/utils";
  * La migración 0017 los asignó a Shopify Payments, que era lo único que
  * existía. Los que tuvieron ventas por PayPal hay que corregirlos a mano: se
  * vuelve a registrar el día en el formulario con su reparto y se sobrescribe.
+ *
+ * Esos días son de la tienda que existía entonces: /diario solo pinta el aviso
+ * dentro de una tienda con días por revisar (ver obtenerRevisionMetodos).
  */
-export function AvisoRevisionMetodos({ dias }: { dias: DiaPorRevisar[] }) {
+export function AvisoRevisionMetodos({
+  dias,
+  nombreTienda,
+}: {
+  dias: DiaPorRevisar[];
+  nombreTienda: string;
+}) {
   const [abierto, setAbierto] = useState(false);
   const [guardando, iniciar] = useTransition();
 
@@ -40,8 +49,8 @@ export function AvisoRevisionMetodos({ dias }: { dias: DiaPorRevisar[] }) {
         <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
         <div className="min-w-0 flex-1">
           <h2 id="aviso-metodos-titulo" className="text-sm font-semibold text-text-primary">
-            Revisa {dias.length === 1 ? "1 día" : `${dias.length} días`} de antes del
-            desglose por método de cobro
+            Revisa {dias.length === 1 ? "1 día" : `${dias.length} días`} de {nombreTienda}{" "}
+            de antes del desglose por método de cobro
           </h2>
           <p className="mt-1 text-sm text-text-secondary">
             Sus ventas se asignaron enteras a Shopify Payments. Si alguno tuvo ventas

@@ -2,6 +2,8 @@
 
 import { Download } from "lucide-react";
 
+import { useAmbito } from "@/components/tiendas/proveedor-tiendas";
+import { conTienda } from "@/lib/ambito";
 import { escribirFiltros, type Filtros } from "@/lib/esquemas/filtros";
 
 /**
@@ -9,13 +11,16 @@ import { escribirFiltros, type Filtros } from "@/lib/esquemas/filtros";
  *
  * Es un enlace normal a un route handler: el navegador se encarga de la
  * descarga y los mismos filtros de la vista viajan en la query string, así que
- * lo que se baja es exactamente lo que se está viendo.
+ * lo que se baja es exactamente lo que se está viendo. La tienda también: va
+ * explícita en el enlace, no se confía en la cookie.
  */
 export function BotonExportar({ filtros }: { filtros: Filtros }) {
-  const query = escribirFiltros(filtros);
-  const href = query
-    ? `/api/movimientos/exportar?${query}`
-    : "/api/movimientos/exportar";
+  const { slug } = useAmbito();
+  const query = escribirFiltros({ ...filtros, pagina: 1 });
+  const href = conTienda(
+    query ? `/api/movimientos/exportar?${query}` : "/api/movimientos/exportar",
+    slug,
+  );
 
   return (
     <a

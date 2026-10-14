@@ -7,6 +7,8 @@ import { toast } from "sonner";
 
 import { aplazarRenovacion, registrarPagoCuenta } from "@/app/acciones/cuentas";
 import { cn } from "@/lib/utils";
+import { useTiendas } from "@/components/tiendas/proveedor-tiendas";
+import { nombreTienda } from "@/lib/ambito";
 import { formatearEuros, formatearFecha } from "@/lib/formato";
 import type { CuentaConCoste } from "@/lib/tipos-cuentas";
 
@@ -96,6 +98,7 @@ function FilaAviso({
   const [accion, setAccion] = useState<"pago" | "aplazar" | null>(null);
 
   const dias = cuenta.dias_para_renovar ?? 0;
+  const tiendas = useTiendas();
 
   function pagar() {
     setAccion("pago");
@@ -110,10 +113,12 @@ function FilaAviso({
 
       // El toast confirma las DOS cosas que han pasado, no solo el gasto.
       const datos = resultado.datos;
+      // El gasto va a la tienda de la cuenta (fn_registrar_pago_cuenta).
+      const donde = nombreTienda(cuenta.tienda_id, tiendas);
       toast.success(
         datos?.renovacion_avanzada && datos.fecha_renovacion
-          ? `Gasto de ${formatearEuros(datos.importe_eur)} registrado. La renovación pasa al ${formatearFecha(datos.fecha_renovacion)}.`
-          : `Gasto de ${formatearEuros(datos?.importe_eur ?? 0)} registrado.`,
+          ? `Gasto de ${formatearEuros(datos.importe_eur)} registrado en ${donde}. La renovación pasa al ${formatearFecha(datos.fecha_renovacion)}.`
+          : `Gasto de ${formatearEuros(datos?.importe_eur ?? 0)} registrado en ${donde}.`,
       );
       router.refresh();
     });

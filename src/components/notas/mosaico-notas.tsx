@@ -10,7 +10,13 @@ import { toast } from "sonner";
 import { EditorNota } from "@/components/notas/editor-nota";
 import { Markdown } from "@/components/notas/markdown";
 import { EstadoVacio } from "@/components/estado-vacio";
+import {
+  useAmbito,
+  useHrefConTienda,
+  useTiendas,
+} from "@/components/tiendas/proveedor-tiendas";
 import { alternarFijada, crearNota } from "@/app/acciones/notas";
+import { colorTienda, nombreTienda } from "@/lib/ambito";
 import { cn } from "@/lib/utils";
 import type { NotaConAutor } from "@/lib/tipos-cuentas";
 import type { Perfil } from "@/lib/tipos-db";
@@ -28,11 +34,15 @@ function TarjetaNota({
   nota,
   alAbrir,
   alFijar,
+  conTienda,
 }: {
   nota: NotaConAutor;
   alAbrir: () => void;
   alFijar: () => void;
+  /** En «Todas», cada nota dice de qué tienda es (o General). */
+  conTienda: boolean;
 }) {
+  const tiendas = useTiendas();
   return (
     <article
       className="mb-3 break-inside-avoid rounded-xl border border-border bg-surface transition-colors hover:bg-surface-2"
@@ -106,6 +116,16 @@ function TarjetaNota({
           />
           {nota.autor_nombre || "—"}
         </span>
+        {conTienda ? (
+          <span className="flex min-w-0 items-center gap-1.5 truncate text-text-muted">
+            <span
+              aria-hidden="true"
+              style={{ backgroundColor: colorTienda(nota.tienda_id, tiendas) }}
+              className="size-2 shrink-0 rounded-sm"
+            />
+            {nombreTienda(nota.tienda_id, tiendas)}
+          </span>
+        ) : null}
         <time className="ml-auto text-text-muted" dateTime={nota.updated_at ?? undefined}>
           {haceCuanto(nota.updated_at)}
         </time>
@@ -126,6 +146,9 @@ export function MosaicoNotas({
   filtros: { q: string; etiquetas: string[]; autor: string; archivadas: boolean };
 }) {
   const router = useRouter();
+  const ambito = useAmbito();
+  const conTiendaHref = useHrefConTienda();
+  const conTienda = ambito.tipo === "todas";
   const [editando, setEditando] = useState<NotaConAutor | null>(null);
   const [busqueda, setBusqueda] = useState(filtros.q);
   const [, iniciarTransicion] = useTransition();
@@ -145,13 +168,16 @@ export function MosaicoNotas({
 
     const query = params.toString();
     iniciarTransicion(() => {
-      router.push(query ? `/notas?${query}` : "/notas", { scroll: false });
+      router.push(conTiendaHref(query ? `/notas?${query}` : "/notas"), { scroll: false });
     });
   }
 
+  // Nota nueva: en la tienda activa; en «Todas» y «General», en General.
+  const tiendaNueva = ambito.tipo === "tienda" ? ambito.tienda.id : null;
+
   function nueva() {
     iniciarTransicion(async () => {
-      const resultado = await crearNota();
+      const resultado = await crearNota(tiendaNueva);
       if (!resultado.ok) {
         toast.error(resultado.error);
         return;
@@ -164,6 +190,7 @@ export function MosaicoNotas({
         color: null,
         fijada: false,
         archivada: false,
+        tienda_id: tiendaNueva,
         created_by: "",
         created_at: null,
         updated_at: null,
@@ -320,6 +347,7 @@ export function MosaicoNotas({
                     nota={nota}
                     alAbrir={() => setEditando(nota)}
                     alFijar={() => fijar(nota)}
+                    conTienda={conTienda}
                   />
                 ))}
               </div>
@@ -340,6 +368,7 @@ export function MosaicoNotas({
                     nota={nota}
                     alAbrir={() => setEditando(nota)}
                     alFijar={() => fijar(nota)}
+                    conTienda={conTienda}
                   />
                 ))}
               </div>

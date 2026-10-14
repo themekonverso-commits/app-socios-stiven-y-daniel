@@ -17,6 +17,8 @@ import {
   obtenerTotales,
 } from "@/lib/consultas";
 import { hayFiltrosActivos, leerFiltros } from "@/lib/esquemas/filtros";
+import { conTienda, type Ambito } from "@/lib/ambito";
+import { obtenerAmbito } from "@/lib/tiendas";
 
 export const metadata = { title: "Movimientos" };
 
@@ -29,12 +31,19 @@ export default async function PaginaMovimientos({
 }) {
   const params = await searchParams;
   const filtros = leerFiltros(params);
+  const ambito = await obtenerAmbito();
 
   return (
     <div className="flex flex-col gap-5">
       <EncabezadoPagina
         titulo="Movimientos"
-        descripcion="Todos los ingresos y gastos registrados."
+        descripcion={
+          ambito.tipo === "todas"
+            ? "Los ingresos y gastos de todas las tiendas y de la sociedad."
+            : ambito.tipo === "general"
+              ? "Los gastos compartidos de la sociedad, que no son de ninguna tienda."
+              : "Los ingresos y gastos registrados en esta tienda."
+        }
         acciones={
           <div className="flex flex-wrap gap-2">
             <BotonExportar filtros={filtros} />
@@ -49,7 +58,7 @@ export default async function PaginaMovimientos({
         key={JSON.stringify(params)}
         fallback={<EsqueletoMovimientos />}
       >
-        <ContenidoMovimientos params={params} />
+        <ContenidoMovimientos params={params} ambito={ambito} />
       </Suspense>
     </div>
   );
@@ -57,14 +66,16 @@ export default async function PaginaMovimientos({
 
 async function ContenidoMovimientos({
   params,
+  ambito,
 }: {
   params: Record<string, string | string[] | undefined>;
+  ambito: Ambito;
 }) {
   const filtros = leerFiltros(params);
 
   const [resultado, totales, categorias, socios] = await Promise.all([
-    obtenerMovimientos(filtros),
-    obtenerTotales(filtros),
+    obtenerMovimientos(filtros, ambito),
+    obtenerTotales(filtros, ambito),
     obtenerCategorias(),
     obtenerSocios(),
   ]);
@@ -104,7 +115,7 @@ async function ContenidoMovimientos({
             descripcion="Prueba a ampliar el rango de fechas o a quitar algún filtro."
             accion={
               <a
-                href="/movimientos"
+                href={conTienda("/movimientos", ambito.slug)}
                 className="inline-flex min-h-11 items-center rounded-lg border border-border px-4 text-sm font-medium text-text-primary transition-colors hover:bg-surface-2"
               >
                 Limpiar filtros
@@ -114,9 +125,19 @@ async function ContenidoMovimientos({
         ) : (
           <EstadoVacio
             icono={ArrowLeftRight}
-            titulo="Todavía no hay movimientos"
-            descripcion="Registra el primer ingreso o gasto y aparecerá aquí."
-            accion={<BotonNuevoMovimiento etiqueta="Crear el primero" />}
+            titulo={
+              ambito.tipo === "tienda"
+                ? `${ambito.tienda.nombre} todavía no tiene movimientos este periodo`
+                : ambito.tipo === "general"
+                  ? "No hay gastos de la sociedad este periodo"
+                  : "Todavía no hay movimientos este periodo"
+            }
+            descripcion={
+              ambito.tipo === "general"
+                ? "Aquí van los gastos compartidos (Claude, Apimart…): elige «General / Sociedad» como tienda al registrarlos."
+                : "Registra el primer ingreso o gasto y aparecerá aquí. Si buscas otros meses, cambia el periodo."
+            }
+            accion={<BotonNuevoMovimiento etiqueta="Registrar el primero" />}
           />
         )
       ) : (
@@ -126,6 +147,7 @@ async function ContenidoMovimientos({
             filtros={filtros}
             total={resultado.total}
             paginas={resultado.paginas}
+            slugTienda={ambito.slug}
           />
         </>
       )}

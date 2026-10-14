@@ -2,6 +2,7 @@ import { EncabezadoPagina } from "@/components/encabezado-pagina";
 import { MosaicoNotas } from "@/components/notas/mosaico-notas";
 import { obtenerEtiquetas, obtenerNotas } from "@/lib/consultas-cuentas";
 import { obtenerSocios } from "@/lib/consultas";
+import { obtenerAmbito } from "@/lib/tiendas";
 
 export const metadata = { title: "Notas" };
 
@@ -29,9 +30,13 @@ export default async function PaginaNotas({
     archivadas: texto(params.archivadas) === "1",
   };
 
+  // Multi-tienda (0018): las notas de la tienda activa, las generales
+  // (tienda_id NULL) o todas, cada una con su tienda.
+  const ambito = await obtenerAmbito();
+
   const [notas, etiquetas, socios] = await Promise.all([
-    obtenerNotas(filtros),
-    obtenerEtiquetas(),
+    obtenerNotas(filtros, ambito),
+    obtenerEtiquetas(ambito),
     obtenerSocios(),
   ]);
 

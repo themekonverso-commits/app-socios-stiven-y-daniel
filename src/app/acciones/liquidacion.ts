@@ -3,10 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { CUENTAS_PAGO } from "@/lib/metodos-cobro";
-
 import { crearClienteServidor } from "@/lib/supabase/server";
 import type { Resultado } from "@/app/acciones/movimientos";
+import { CUENTAS_REEMBOLSO } from "@/lib/tipos-liquidacion";
 
 /**
  * Server Actions de la liquidación.
@@ -15,6 +14,9 @@ import type { Resultado } from "@/app/acciones/movimientos";
  * función SQL correspondiente. Ni un solo importe se calcula aquí, y ninguna
  * de estas acciones decide quién puede firmar un cierre: eso lo resuelve
  * Postgres con auth.uid().
+ *
+ * Global (0018): un reembolso puede cubrir anticipos de varias tiendas y de
+ * General a la vez; no se filtra por tienda.
  */
 
 const UUID = z.uuid();
@@ -45,7 +47,7 @@ const esquemaReembolso = z.object({
   metodo: z.enum(["transferencia", "efectivo", "compensación"]).nullable().optional(),
   notas: z.string().trim().max(500).nullable().optional(),
   /** Cuenta del negocio de la que sale el reembolso (0017). */
-  cuenta: z.enum(CUENTAS_PAGO).optional(),
+  cuenta: z.enum(CUENTAS_REEMBOLSO).optional(),
   lineas: z
     .array(
       z.object({

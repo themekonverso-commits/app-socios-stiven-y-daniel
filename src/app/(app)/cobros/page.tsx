@@ -15,6 +15,7 @@ import {
 } from "@/lib/consultas-cobros";
 import { obtenerTesoreria } from "@/lib/consultas-kpi";
 import { obtenerUsuarioActual } from "@/lib/consultas-liquidacion";
+import { obtenerAmbito } from "@/lib/tiendas";
 import { formatearEuros, formatearPorcentaje } from "@/lib/formato";
 import { PLATAFORMAS_COBRO, type PlataformaCobro } from "@/lib/metodos-cobro";
 import { leerPeriodo } from "@/lib/periodo";
@@ -42,16 +43,21 @@ function leerPlataforma(valor: string | string[] | undefined): PlataformaCobro |
  * PayPal deja en la cuenta de PayPal. Y los traspasos de PayPal al banco.
  *
  * No son ingresos (las ventas ya están en /diario). Lo que aporta la pantalla
- * es la conciliación de cada cobro contra las ventas de SU método, y la foto
- * de la tesorería: banco, PayPal y lo que queda por cobrar.
+ * es la conciliación de cada cobro contra las ventas de SU tienda y SU
+ * método, y la foto de la tesorería: banco, PayPal y lo que queda por cobrar.
+ *
+ * Multi-tienda (0018): los cobros se filtran por la tienda activa (en «Todas»,
+ * todos, cada uno con su tienda; en «General» no hay ninguno). La tesorería y
+ * los traspasos PayPal → Banco son de la sociedad: iguales en cualquier vista.
  */
 export default async function PaginaCobros({ searchParams }: { searchParams: Params }) {
   const parametros = await searchParams;
   const periodo = leerPeriodo(parametros);
   const plataforma = leerPlataforma(parametros.plataforma);
+  const ambito = await obtenerAmbito();
 
   const [{ cobros, error }, { traspasos }, tesoreria, usuarioId] = await Promise.all([
-    obtenerCobros(periodo.desde, periodo.hasta, plataforma),
+    obtenerCobros(periodo.desde, periodo.hasta, plataforma, ambito),
     obtenerTraspasos(periodo.desde, periodo.hasta),
     obtenerTesoreria(),
     obtenerUsuarioActual(),
@@ -79,7 +85,7 @@ export default async function PaginaCobros({ searchParams }: { searchParams: Par
     <div className="flex flex-col gap-5">
       <EncabezadoPagina
         titulo="Cobros"
-        descripcion="Lo que pagan Shopify Payments y PayPal, conciliado con /diario método a método."
+        descripcion="Lo que pagan Shopify Payments y PayPal, conciliado con /diario tienda a tienda y método a método."
         acciones={<SelectorPeriodo periodo={periodo} />}
       />
 
@@ -143,15 +149,15 @@ export default async function PaginaCobros({ searchParams }: { searchParams: Par
         />
         <KpiCard
           icono={Wallet}
-          titulo="Saldos hoy"
-          subtitulo="Al margen del periodo y del filtro"
+          titulo="Caja de la sociedad hoy"
+          subtitulo="Banco y PayPal son de la sociedad: al margen del periodo, del filtro y de la tienda"
           valor={formatearEuros(tesoreria.cajaTotal)}
           claseValor={tesoreria.cajaTotal >= 0 ? "text-text-primary" : "text-danger"}
           desglose={[
             { etiqueta: "Banco", valor: formatearEuros(tesoreria.saldoBanco) },
             { etiqueta: "PayPal", valor: formatearEuros(tesoreria.saldoPaypal) },
             {
-              etiqueta: "Pendiente de cobro",
+              etiqueta: "Pendiente de cobro (todas las tiendas)",
               valor: formatearEuros(tesoreria.pendienteTotal),
               apagado: true,
             },
@@ -169,6 +175,12 @@ export default async function PaginaCobros({ searchParams }: { searchParams: Par
           </p>
           <p className="mt-1 text-sm text-text-secondary">{error}</p>
         </div>
+      ) : ambito.tipo === "general" ? (
+        <EstadoVacio
+          icono={Landmark}
+          titulo="General / Sociedad no tiene cobros"
+          descripcion="Los cobros de Shopify Payments y PayPal son siempre de una tienda. Elige una tienda, o «Todas», en el selector para verlos."
+        />
       ) : cobros.length === 0 ? (
         <EstadoVacio
           icono={Landmark}

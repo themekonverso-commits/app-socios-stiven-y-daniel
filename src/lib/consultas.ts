@@ -14,6 +14,7 @@ import type {
 } from "@/lib/tipos-db";
 import { redondear2 } from "@/lib/dinero";
 import type { MetodoCobro } from "@/lib/metodos-cobro";
+import { filtrarPorAmbito, type Ambito } from "@/lib/ambito";
 
 /**
  * Consultas de lectura. Todas se ejecutan en el servidor con la sesión del
@@ -21,10 +22,23 @@ import type { MetodoCobro } from "@/lib/metodos-cobro";
  *
  * Los filtros se traducen a la consulta SQL. Nunca se traen todas las filas
  * para filtrarlas después.
+ *
+ * MULTI-TIENDA (0018). Toda función que lee `movimientos` o
+ * `vw_ventas_cobertura` recibe como ÚLTIMO parámetro un `ambito` opcional:
+ * con él filtra por la tienda (o solo General); sin él, lo ve todo. Es un
+ * contrato con el dashboard, que las llama pasándoselo.
  */
 
+/**
+ * Columnas explícitas y no `*`: `cuenta_pago` sigue en la tabla hasta la 0019
+ * y nada debe depender de ella.
+ */
 const SELECT_MOVIMIENTO = `
-  *,
+  id, tipo, fecha, concepto, categoria_id, divisa, base_imponible, iva_tipo,
+  iva_importe, total, tasa_cambio, total_eur, base_eur, anticipado_por,
+  medio_pago, tienda_id, metodo_cobro, reembolsado, fecha_reembolso,
+  num_pedidos, plataforma, impresiones, clicks, notas, importacion_id,
+  created_by, created_at, updated_at,
   categorias:categoria_id ( id, nombre, tipo, es_sistema ),
   anticipado:anticipado_por ( id, nombre, color ),
   autor:created_by ( id, nombre, color )
@@ -62,9 +76,19 @@ interface Consulta<T> extends PromiseLike<Respuesta<T>> {
   range(desde: number, hasta: number): Consulta<T>;
 }
 
-/** Aplica los filtros comunes a cualquier consulta sobre `movimientos`. */
-function aplicarFiltros<T>(consulta: Consulta<T>, filtros: Filtros): Consulta<T> {
+/**
+ * Aplica los filtros comunes a cualquier consulta sobre `movimientos`,
+ * incluida la tienda. La lista, los totales y el CSV pasan por aquí: por eso
+ * no pueden descuadrarse entre sí.
+ */
+function aplicarFiltros<T>(
+  consulta: Consulta<T>,
+  filtros: Filtros,
+  ambito?: Ambito,
+): Consulta<T> {
   let q = consulta.gte("fecha", filtros.desde).lte("fecha", filtros.hasta);
+
+  if (ambito) q = filtrarPorAmbito(q, ambito);
 
   if (filtros.tipo !== "todos") q = q.eq("tipo", filtros.tipo);
   if (filtros.categorias.length > 0) q = q.in("categoria_id", filtros.categorias);
@@ -85,6 +109,9 @@ function aplicarFiltros<T>(consulta: Consulta<T>, filtros: Filtros): Consulta<T>
     q = q.eq("reembolsado", filtros.reembolso === "reembolsado");
   }
 
+  // Solo los gastos tienen medio de pago: filtrar por él deja fuera los ingresos.
+  if (filtros.medio !== "todos") q = q.eq("medio_pago", filtros.medio);
+
   const termino = escaparBusqueda(filtros.q);
   if (termino) {
     // Busca en el concepto y en las notas a la vez.
@@ -103,6 +130,7 @@ export type ResultadoMovimientos = {
 
 export async function obtenerMovimientos(
   filtros: Filtros,
+  ambito?: Ambito,
 ): Promise<ResultadoMovimientos> {
   const supabase = await crearClienteServidor();
 
@@ -113,7 +141,7 @@ export async function obtenerMovimientos(
     .from("movimientos")
     .select(SELECT_MOVIMIENTO, { count: "exact" }) as unknown as Consulta<MovimientoConRelaciones>;
 
-  const { data, count, error } = await aplicarFiltros(base, filtros)
+  const { data, count, error } = await aplicarFiltros(base, filtros, ambito)
     .order(filtros.orden, { ascending: filtros.direccion === "asc" })
     // Desempate estable: sin esto, dos filas del mismo día pueden bailar
     // entre páginas y aparecer repetidas o desaparecer.
@@ -148,7 +176,10 @@ export type TotalesFiltrados = {
  * servidor. Al volumen de una tienda es instantáneo; si algún día creciera,
  * el siguiente paso es una función `sum` en Postgres.
  */
-export async function obtenerTotales(filtros: Filtros): Promise<TotalesFiltrados> {
+export async function obtenerTotales(
+  filtros: Filtros,
+  ambito?: Ambito,
+): Promise<TotalesFiltrados> {
   const supabase = await crearClienteServidor();
 
   const base = supabase
@@ -158,7 +189,7 @@ export async function obtenerTotales(filtros: Filtros): Promise<TotalesFiltrados
       total_eur: number;
     }>;
 
-  const { data, error } = await aplicarFiltros(base, filtros);
+  const { data, error } = await aplicarFiltros(base, filtros, ambito);
 
   if (error || !data) return { ingresos: 0, gastos: 0, resultado: 0 };
 
@@ -180,6 +211,7 @@ export async function obtenerTotales(filtros: Filtros): Promise<TotalesFiltrados
 /** Todas las filas filtradas, para exportar a CSV. Sin paginar. */
 export async function obtenerMovimientosParaExportar(
   filtros: Filtros,
+  ambito?: Ambito,
 ): Promise<MovimientoConRelaciones[]> {
   const supabase = await crearClienteServidor();
 
@@ -187,7 +219,7 @@ export async function obtenerMovimientosParaExportar(
     .from("movimientos")
     .select(SELECT_MOVIMIENTO) as unknown as Consulta<MovimientoConRelaciones>;
 
-  const { data, error } = await aplicarFiltros(base, filtros).order("fecha", {
+  const { data, error } = await aplicarFiltros(base, filtros, ambito).order("fecha", {
     ascending: true,
   });
 
@@ -209,9 +241,22 @@ export async function obtenerCategorias(): Promise<Categoria[]> {
   return (data ?? []) as Categoria[];
 }
 
-/** Categorías con su número de movimientos e importe acumulado. */
-export async function obtenerCategoriasConUso(): Promise<CategoriaConUso[]> {
+/**
+ * Categorías con su número de movimientos e importe acumulado.
+ *
+ * Las categorías son globales y /categorias las llama SIN ámbito: el número de
+ * movimientos decide si una categoría se puede borrar, y tiene que contar los
+ * de todas las tiendas.
+ */
+export async function obtenerCategoriasConUso(ambito?: Ambito): Promise<CategoriaConUso[]> {
   const supabase = await crearClienteServidor();
+
+  const consultaMovimientos = supabase
+    .from("movimientos")
+    .select("categoria_id, total_eur") as unknown as Consulta<{
+      categoria_id: string;
+      total_eur: number;
+    }>;
 
   const [{ data: categorias }, { data: movimientos }] = await Promise.all([
     supabase
@@ -219,7 +264,7 @@ export async function obtenerCategoriasConUso(): Promise<CategoriaConUso[]> {
       .select("*")
       .order("orden", { ascending: true })
       .order("nombre", { ascending: true }),
-    supabase.from("movimientos").select("categoria_id, total_eur"),
+    ambito ? filtrarPorAmbito(consultaMovimientos, ambito) : consultaMovimientos,
   ]);
 
   const uso = new Map<string, { num: number; total: number }>();
@@ -261,19 +306,25 @@ export async function obtenerSocios(): Promise<Perfil[]> {
  * PostgREST no tiene DISTINCT ni GROUP BY, así que se agrupan aquí sobre los
  * últimos movimientos, que es de donde saldrán las repeticiones útiles.
  */
-export async function obtenerConceptosFrecuentes(limite = 80): Promise<string[]> {
+export async function obtenerConceptosFrecuentes(
+  limite = 80,
+  ambito?: Ambito,
+): Promise<string[]> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
+  const base = supabase
     .from("movimientos")
-    .select("concepto")
+    .select("concepto") as unknown as Consulta<{ concepto: string }>;
+
+  // Las 600 últimas filas: de ahí salen las repeticiones útiles.
+  const { data, error } = await (ambito ? filtrarPorAmbito(base, ambito) : base)
     .order("created_at", { ascending: false })
-    .limit(600);
+    .range(0, 599);
 
   if (error || !data) return [];
 
   const frecuencia = new Map<string, number>();
-  for (const fila of data as unknown as { concepto: string }[]) {
+  for (const fila of data) {
     const concepto = fila.concepto?.trim();
     if (!concepto) continue;
     frecuencia.set(concepto, (frecuencia.get(concepto) ?? 0) + 1);
@@ -309,21 +360,46 @@ export async function obtenerUltimaTasa(): Promise<{
 /** Un movimiento concreto, para editar o duplicar. */
 export async function obtenerMovimiento(
   id: string,
+  ambito?: Ambito,
 ): Promise<MovimientoConRelaciones | null> {
   const supabase = await crearClienteServidor();
 
-  const { data, error } = await supabase
+  const base = supabase
     .from("movimientos")
-    .select(SELECT_MOVIMIENTO)
+    .select(SELECT_MOVIMIENTO) as unknown as Consulta<MovimientoConRelaciones>;
+
+  const { data, error } = await (ambito ? filtrarPorAmbito(base, ambito) : base)
     .eq("id", id)
+    .range(0, 0);
+
+  if (error || !data || data.length === 0) return null;
+  return data[0] ?? null;
+}
+
+/**
+ * Socio titular de la tarjeta del negocio (`ajustes.limite_aportacion`). Un
+ * gasto pagado con la tarjeta queda siempre como anticipo suyo: lo fija el
+ * trigger `normalizar_medio_pago`, y el formulario lo enseña bloqueado.
+ */
+export async function obtenerSocioTarjeta(): Promise<string | null> {
+  const supabase = await crearClienteServidor();
+
+  const { data } = await supabase
+    .from("ajustes")
+    .select("valor")
+    .eq("clave", "limite_aportacion")
     .maybeSingle();
 
-  if (error || !data) return null;
-  return data as unknown as MovimientoConRelaciones;
+  const valor = (data?.valor ?? null) as { socio_id?: unknown } | null;
+  const socio = typeof valor?.socio_id === "string" ? valor.socio_id.trim() : "";
+  return socio || null;
 }
 
 /** Registro diario: los últimos N días de ventas de Shopify. */
-export async function obtenerVentasDiarias(dias = 30): Promise<{
+export async function obtenerVentasDiarias(
+  dias = 30,
+  ambito?: Ambito,
+): Promise<{
   filas: MovimientoConRelaciones[];
   error: string | null;
 }> {
@@ -333,21 +409,25 @@ export async function obtenerVentasDiarias(dias = 30): Promise<{
   desde.setDate(desde.getDate() - (dias - 1));
   const desdeIso = desde.toISOString().slice(0, 10);
 
-  const { data, error } = await supabase
+  const base = supabase
     .from("movimientos")
     .select(SELECT_MOVIMIENTO)
+    .not("num_pedidos", "is", null) as unknown as Consulta<MovimientoConRelaciones>;
+
+  const { data, error } = await (ambito ? filtrarPorAmbito(base, ambito) : base)
     .eq("tipo", "ingreso")
-    .not("num_pedidos", "is", null)
     .gte("fecha", desdeIso)
     .order("fecha", { ascending: false });
 
   if (error) return { filas: [], error: error.message };
-  return { filas: (data ?? []) as unknown as MovimientoConRelaciones[], error: null };
+  return { filas: data ?? [], error: null };
 }
 
-/** Ventas de un día y un método, y si ya las cubre un cobro de ese método. */
+/** Ventas de un día, una tienda y un método, y si ya las cubre un cobro. */
 export type CoberturaVentas = {
   fecha: string;
+  /** Una venta siempre es de una tienda (CHECK de la 0018). */
+  tiendaId: string | null;
   metodo: MetodoCobro;
   ventas: number;
   cubierta: boolean;
@@ -358,21 +438,38 @@ export type CoberturaVentas = {
  * Cobertura de las ventas desde una fecha (vista `vw_ventas_cobertura`).
  * Alimenta el indicador «cobrado / pendiente» de cada día en /diario.
  */
-export async function obtenerCoberturaVentas(dias = 30): Promise<CoberturaVentas[]> {
+export async function obtenerCoberturaVentas(
+  dias = 30,
+  ambito?: Ambito,
+): Promise<CoberturaVentas[]> {
   const supabase = await crearClienteServidor();
 
   const desde = new Date();
   desde.setDate(desde.getDate() - (dias - 1));
 
-  const { data, error } = await supabase
+  type FilaCobertura = {
+    fecha: string | null;
+    tienda_id: string | null;
+    metodo_cobro: string | null;
+    ventas: number | null;
+    cubierta: boolean | null;
+    cobro_fecha: string | null;
+  };
+
+  const base = supabase
     .from("vw_ventas_cobertura")
-    .select("fecha, metodo_cobro, ventas, cubierta, cobro_fecha")
-    .gte("fecha", desde.toISOString().slice(0, 10));
+    .select("fecha, tienda_id, metodo_cobro, ventas, cubierta, cobro_fecha") as unknown as Consulta<FilaCobertura>;
+
+  const { data, error } = await (ambito ? filtrarPorAmbito(base, ambito) : base).gte(
+    "fecha",
+    desde.toISOString().slice(0, 10),
+  );
 
   if (error || !data) return [];
 
   return data.map((fila) => ({
     fecha: fila.fecha ?? "",
+    tiendaId: fila.tienda_id ?? null,
     metodo: (fila.metodo_cobro === "paypal" ? "paypal" : "shopify_payments") as MetodoCobro,
     ventas: Number(fila.ventas ?? 0),
     cubierta: Boolean(fila.cubierta),
@@ -391,8 +488,11 @@ export type DiaPorRevisar = {
  * Días con ventas anteriores a la migración 0017. Se asignaron a Shopify
  * Payments por defecto; /diario los lista para revisar a mano los que
  * tuvieron PayPal. Devuelve null cuando ya se marcó como revisado.
+ *
+ * Con ámbito, solo cuenta los días que tienen ventas en ese ámbito: esos días
+ * son todos de la primera tienda, y en una tienda nueva el aviso no pinta nada.
  */
-export async function obtenerRevisionMetodos(): Promise<{
+export async function obtenerRevisionMetodos(ambito?: Ambito): Promise<{
   aplicado: string;
   dias: DiaPorRevisar[];
 } | null> {
@@ -411,23 +511,36 @@ export async function obtenerRevisionMetodos(): Promise<{
   if (!valor || valor.revisado || !valor.dias?.length) return null;
 
   // Cómo están hoy esos días: si ya se corrigió uno, se ve con su PayPal.
-  const { data } = await supabase
+  const base = supabase
     .from("vw_ventas_cobertura")
-    .select("fecha, metodo_cobro, ventas")
-    .in("fecha", valor.dias);
+    .select("fecha, metodo_cobro, ventas") as unknown as Consulta<{
+      fecha: string | null;
+      metodo_cobro: string | null;
+      ventas: number | null;
+    }>;
+
+  const { data } = await (ambito ? filtrarPorAmbito(base, ambito) : base).in(
+    "fecha",
+    valor.dias,
+  );
 
   const porDia = new Map<string, DiaPorRevisar>(
     valor.dias.map((fecha) => [fecha, { fecha, shopify: 0, paypal: 0 }]),
   );
+  const conVentas = new Set<string>();
   for (const fila of data ?? []) {
     const dia = porDia.get(fila.fecha ?? "");
     if (!dia) continue;
+    conVentas.add(dia.fecha);
     if (fila.metodo_cobro === "paypal") dia.paypal += Number(fila.ventas ?? 0);
     else dia.shopify += Number(fila.ventas ?? 0);
   }
 
-  return {
-    aplicado: valor.aplicado ?? "",
-    dias: [...porDia.values()].sort((a, b) => b.fecha.localeCompare(a.fecha)),
-  };
+  const dias = [...porDia.values()]
+    .filter((dia) => !ambito || conVentas.has(dia.fecha))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+
+  if (dias.length === 0) return null;
+
+  return { aplicado: valor.aplicado ?? "", dias };
 }

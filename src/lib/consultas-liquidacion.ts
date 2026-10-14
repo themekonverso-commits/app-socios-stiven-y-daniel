@@ -17,6 +17,10 @@ import type {
  *
  * Todo el cálculo lo hace Postgres: estas funciones solo transportan. Si algún
  * día una cifra sale mal, se arregla en la función SQL, no aquí.
+ *
+ * Es GLOBAL (0018): nada de aquí recibe ni aplica el ámbito de tienda. La
+ * liquidación suma todas las tiendas y General, y así las pérdidas de una
+ * compensan los beneficios de otra.
  */
 
 const n = (valor: unknown): number => {
@@ -103,6 +107,10 @@ export async function obtenerAnticiposPendientes(): Promise<AnticipoPendiente[]>
     total_eur: n(fila.total_eur),
     reembolsado_eur: n(fila.reembolsado_eur),
     pendiente_eur: n(fila.pendiente_eur),
+    tienda_id: fila.tienda_id ?? null,
+    tienda: fila.tienda ?? "General / Sociedad",
+    tienda_color: fila.tienda_color ?? null,
+    medio_pago: fila.medio_pago ?? null,
   }));
 }
 
@@ -119,10 +127,30 @@ export async function obtenerHistorialReembolsos(): Promise<ReembolsoHistorial[]
 
   if (error || !data) return [];
 
-  return (data as unknown as Record<string, unknown>[]).map((fila) => {
+  const filas = data as unknown as Record<string, unknown>[];
+  const lineasDe = (fila: Record<string, unknown>) =>
+    (fila.reembolso_movimientos ?? []) as { movimiento_id: string }[];
+
+  // La tienda de cada anticipo cubierto, en una segunda lectura: incrustarla
+  // en la primera es ambiguo para PostgREST (la misma clave foránea se ve
+  // también a través de las vistas).
+  const ids = [...new Set(filas.flatMap((f) => lineasDe(f).map((l) => l.movimiento_id)))];
+  const tiendaDe = new Map<string, string | null>();
+  if (ids.length > 0) {
+    const { data: movimientos } = await supabase
+      .from("movimientos")
+      .select("id, tienda_id")
+      .in("id", ids);
+    for (const m of movimientos ?? []) tiendaDe.set(m.id, m.tienda_id);
+  }
+
+  return filas.map((fila) => {
     const socio = fila.socio as { nombre?: string; color?: string } | null;
     const autor = fila.autor as { nombre?: string } | null;
-    const lineas = (fila.reembolso_movimientos ?? []) as unknown[];
+    const lineas = lineasDe(fila);
+    const tiendas = [
+      ...new Set(lineas.map((l) => tiendaDe.get(l.movimiento_id) ?? null)),
+    ];
 
     return {
       id: String(fila.id ?? ""),
@@ -135,6 +163,7 @@ export async function obtenerHistorialReembolsos(): Promise<ReembolsoHistorial[]
       notas: (fila.notas as string) ?? null,
       num_anticipos: lineas.length,
       registrado_por: autor?.nombre ?? "",
+      tiendas,
     };
   });
 }
@@ -162,14 +191,13 @@ export async function obtenerCierre(id: string): Promise<Cierre | null> {
   return data as unknown as Cierre;
 }
 
-/** «a», «a y b», «a, b y c». Null si no hay nada. */
-function enumerar(elementos: string[]): string | null {
-  if (elementos.length === 0) return null;
-  if (elementos.length === 1) return elementos[0]!;
-  return `${elementos.slice(0, -1).join(", ")} y ${elementos.at(-1)}`;
-}
-
-/** R6 — límite de aportación acordado y umbral de aviso. */
+/**
+ * R6 — cupo acordado de la tarjeta y umbral de aviso.
+ *
+ * Desde la 0018 el cupo mide lo pagado con la tarjeta (medio_pago =
+ * tarjeta_daniel), de todas las tiendas y de General: ya no hay categorías que
+ * leer. Para las cifras en vivo está `obtenerCupoTarjeta()` (lib/consultas-cupo).
+ */
 export async function obtenerLimiteAportacion(): Promise<{
   limite: LimiteAportacion;
   avisoPct: number;
@@ -184,77 +212,37 @@ export async function obtenerLimiteAportacion(): Promise<{
   const limite = (porClave.get("limite_aportacion") ?? {}) as Record<string, unknown>;
   const aviso = (porClave.get("aviso_limite_pct") ?? {}) as Record<string, unknown>;
 
-  // Desde la 0016 el ámbito es una lista; se acepta también el categoria_id
-  // de la 0011, igual que hace fn_categorias_limite() en la base de datos.
-  const ids: string[] = Array.isArray(limite.categoria_ids)
-    ? (limite.categoria_ids as string[])
-    : limite.categoria_id
-      ? [limite.categoria_id as string]
-      : [];
-
-  // Los nombres solo sirven para el texto de la pantalla. Quien decide qué
-  // entra en el cupo es la vista, con los ids: aquí no se filtra nada.
-  let categorias: { id: string; nombre: string }[] = [];
-  if (ids.length > 0) {
-    const { data: filas } = await supabase
-      .from("categorias")
-      .select("id, nombre")
-      .in("id", ids);
-    const porId = new Map((filas ?? []).map((c) => [c.id, c.nombre]));
-    categorias = ids
-      .filter((id) => porId.has(id))
-      .map((id) => ({ id, nombre: porId.get(id)! }));
-  }
-
   return {
     limite: {
       socio_id: (limite.socio_id as string) ?? null,
       importe: n(limite.importe),
-      categorias,
-      ambito: enumerar(categorias.map((c) => c.nombre.toLowerCase())),
+      ambito: "los gastos pagados con la tarjeta",
     },
     avisoPct: n(aviso.porcentaje) || 80,
   };
 }
 
 /**
- * R6 — los últimos anticipos que consumen el cupo de la tarjeta de un socio.
- *
- * Mismo criterio que `anticipado_cupo` en la vista: gastos que adelantó ese
- * socio en alguna de las categorías del cupo. Sin categorías, todos sus
- * anticipos. Devuelve también el total y la fecha del más antiguo, para que el
- * enlace a /movimientos abarque el histórico completo y no solo el mes.
+ * R6 — los últimos gastos pagados con la tarjeta, de cualquier tienda y de
+ * General. Mismo criterio que `fn_cupo_tarjeta()` y que `anticipado_cupo`:
+ * medio_pago = 'tarjeta_daniel'. Devuelve también cuántos hay en total, para
+ * saber si hace falta el enlace a /movimientos.
  */
 export async function obtenerMovimientosCupo(
-  socioId: string,
-  categoriaIds: string[],
   limite = 5,
-): Promise<{ movimientos: MovimientoCupo[]; total: number; desde: string | null }> {
+): Promise<{ movimientos: MovimientoCupo[]; total: number }> {
   const supabase = await crearClienteServidor();
 
-  let consulta = supabase
+  const { data, count } = await supabase
     .from("movimientos")
-    .select("id, fecha, concepto, total_eur, categoria:categoria_id ( nombre )", {
+    .select("id, fecha, concepto, total_eur, tienda_id, categoria:categoria_id ( nombre )", {
       count: "exact",
     })
     .eq("tipo", "gasto")
-    .eq("anticipado_por", socioId);
-  if (categoriaIds.length > 0) consulta = consulta.in("categoria_id", categoriaIds);
-
-  let primera = supabase
-    .from("movimientos")
-    .select("fecha")
-    .eq("tipo", "gasto")
-    .eq("anticipado_por", socioId);
-  if (categoriaIds.length > 0) primera = primera.in("categoria_id", categoriaIds);
-
-  const [{ data, count }, { data: masAntiguo }] = await Promise.all([
-    consulta
-      .order("fecha", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(limite),
-    primera.order("fecha", { ascending: true }).limit(1).maybeSingle(),
-  ]);
+    .eq("medio_pago", "tarjeta_daniel")
+    .order("fecha", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(limite);
 
   return {
     movimientos: (data ?? []).map((fila) => ({
@@ -263,9 +251,9 @@ export async function obtenerMovimientosCupo(
       concepto: fila.concepto,
       total_eur: n(fila.total_eur),
       categoria: (fila.categoria as { nombre?: string } | null)?.nombre ?? "—",
+      tienda_id: fila.tienda_id,
     })),
     total: count ?? 0,
-    desde: masAntiguo?.fecha ?? null,
   };
 }
 

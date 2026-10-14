@@ -12,16 +12,31 @@ import {
 import { obtenerSocios } from "@/lib/consultas";
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { etiquetaTrimestre, limitesTrimestre, parsearClave } from "@/lib/gestoria/periodos";
+import {
+  PARAM_AMBITO_GESTORIA,
+  leerAmbitoGestoria,
+  nombreAmbitoGestoria,
+  sufijoAmbitoGestoria,
+} from "@/lib/gestoria/ambito";
+import { obtenerTiendas } from "@/lib/tiendas";
+import type { Ambito } from "@/lib/ambito";
 
 /**
  * Lo que las tres rutas de exportación hacen igual: comprobar la sesión, leer
- * el trimestre de la query y cargar los datos. Escrito una vez para que las
- * tres exporten exactamente lo mismo.
+ * el trimestre y el ámbito de la query y cargar los datos. Escrito una vez
+ * para que las tres exporten exactamente lo mismo.
+ *
+ * `?ambito=todas|general|<slug>`; sin él, el consolidado de la sociedad.
  */
 
 export type Contexto = {
   clave: string;
   etiqueta: string;
+  ambito: Ambito;
+  /** «Consolidado (sociedad)», «General / Sociedad (…)» o el nombre de la tienda. */
+  nombreAmbito: string;
+  /** Para los nombres de archivo: `gestoria-2026-Q3-consolidado.zip`. */
+  sufijo: string;
   desde: string;
   hasta: string;
   filas: FilaLibro[];
@@ -54,10 +69,21 @@ export async function prepararExportacion(
     };
   }
 
+  const { ambito, error: errorAmbito } = leerAmbitoGestoria(
+    parametros.get(PARAM_AMBITO_GESTORIA),
+    await obtenerTiendas(),
+  );
+  if (errorAmbito) {
+    return {
+      ok: false,
+      respuesta: NextResponse.json({ error: errorAmbito }, { status: 400 }),
+    };
+  }
+
   const { desde, hasta } = limitesTrimestre(trimestre);
   const [filas, resumen] = await Promise.all([
-    obtenerLibro(desde, hasta),
-    obtenerResumenIva(desde, hasta),
+    obtenerLibro(desde, hasta, ambito),
+    obtenerResumenIva(desde, hasta, ambito),
   ]);
 
   if (!resumen) {
@@ -75,6 +101,9 @@ export async function prepararExportacion(
     contexto: {
       clave: `${trimestre.anio}-Q${trimestre.numero}`,
       etiqueta: etiquetaTrimestre(trimestre),
+      ambito,
+      nombreAmbito: nombreAmbitoGestoria(ambito),
+      sufijo: sufijoAmbitoGestoria(ambito),
       desde,
       hasta,
       filas,
@@ -83,7 +112,10 @@ export async function prepararExportacion(
   };
 }
 
-/** El cierre aprobado del periodo, con los nombres de los socios resueltos. */
+/**
+ * El cierre aprobado del periodo, con los nombres de los socios resueltos. Es
+ * de la sociedad: va igual en cualquier ámbito.
+ */
 export async function cargarActa(desde: string, hasta: string) {
   const cierre = await obtenerCierreDelPeriodo(desde, hasta);
   if (!cierre) return null;

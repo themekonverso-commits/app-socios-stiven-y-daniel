@@ -13,6 +13,7 @@
  * declara aquí y el compilador nos cubre las ramas de los `if`.
  */
 import type { Database } from "@/types/database";
+import type { MedioPago } from "@/lib/medios-pago";
 
 type Tablas = Database["public"]["Tables"];
 
@@ -34,12 +35,19 @@ export type TipoCambio = Omit<Tablas["tipos_cambio"]["Row"], "divisa"> & {
   divisa: "USD";
 };
 
+/**
+ * `cuenta_pago` se queda fuera a propósito: la sustituyó `medio_pago` en la
+ * 0018 y la borra la 0019. Mientras los tipos generados la sigan trayendo,
+ * así nadie puede volver a usarla sin que el compilador se queje.
+ */
 export type Movimiento = Omit<
   Tablas["movimientos"]["Row"],
-  "tipo" | "divisa"
+  "tipo" | "divisa" | "medio_pago" | "cuenta_pago"
 > & {
   tipo: TipoMovimiento;
   divisa: Divisa;
+  /** Solo en gastos; null en ingresos (CHECK de la 0018). */
+  medio_pago: MedioPago | null;
 };
 
 export type CuentaActivo = Tablas["cuentas_activos"]["Row"];
@@ -65,4 +73,4 @@ export type CategoriaConUso = Categoria & {
 };
 
 /** Fila que se envía al insertar o actualizar un movimiento. */
-export type FilaInsertMovimiento = Tablas["movimientos"]["Insert"];
+export type FilaInsertMovimiento = Omit<Tablas["movimientos"]["Insert"], "cuenta_pago">;
